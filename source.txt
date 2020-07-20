@@ -1,0 +1,5609 @@
+
+This document describes the source code for a reference compiler for the Straightjacket programming language (to be discussed later).  This program extracts code from a literate source document (if necessary), gathers declarations from header files (if any are declared) and then translates the main program.
+
+<<def>>
+header
+xlatePrimitive
+identifierList_extract
+branch
+if_handler
+expression_handler
+subr_call
+close_nesting
+statement_handler
+getChunks
+literate
+begin
+compiler_begin
+compiler_1
+compiler_end
+<</def>>
+
+Here we're pulling the command line arguments.  There should either be two or three arguments.  The first two arguments should be the input and output arguments.  If three arguments exist, then the first argument should be equal to "-l", indicating that the source file was written as a literate document.  If this option is present, the compiler will attempt to extract source code from the input document before it tries to compile the code.
+
+<<begin>>
+
+begin
+
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////			Beginning of the main program		///////
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////												///////
+
+numArgs := ParamCount;
+
+if numArgs = 2 then begin
+
+	firstArg := ParamStr(1);
+	secondArg := ParamStr(2);
+
+	If NOT FileExists(firstArg) then begin
+		writeln('File "' + firstArg + '" not found.');
+		halt;
+	end;
+
+	assign(input_file,firstArg);
+	reset(input_file);
+
+	assign(final_output,secondArg);
+
+	isLiterate := FALSE;
+
+end;
+
+if numArgs = 3 then begin
+
+	if ParamStr(1) = '-l' then begin
+
+		firstArg := ParamStr(2);
+		secondArg := ParamStr(3);
+	
+		If NOT FileExists(firstArg) then begin
+			writeln('File "' + firstArg + '" not found.');
+			halt;
+		end;
+	
+		assign(input_file,firstArg);
+		reset(input_file);
+	
+		assign(final_output,secondArg);
+
+		isLiterate := TRUE;
+
+	end;
+
+	if ParamStr(1) <> '-l' then begin
+		writeln('The third argument, if it exists, must be this (indicating that the source file is a literate document):  -l');
+		halt;
+	end;
+
+end;
+
+
+if numArgs < 2 then begin
+	writeln('Wrong number of parameters supplied.  Please specify and input file and an output file and (optionally) a literate flag.');
+	halt;
+end;
+
+if numArgs > 3 then begin
+	writeln('Wrong number of parameters supplied.  Please specify and input file and an output file and (optionally) a literate flag.');
+	halt;
+end;
+
+modulePath		:= TStringList.Create;
+identifierList	:= TStringList.Create;
+call_list		:= TStringList.Create;
+break_list		:= TStringList.Create;
+loop_list		:= TStringList.Create;
+cond_list		:= TStringList.Create;
+control_list	:= TStringList.Create;
+//if_option_list := TStringList.Create;
+else_list		:= TStringList.Create;
+operator_list	:= TStringList.Create;
+subst_list		:= TStringList.Create;
+
+currentModule := 'root';
+currentSub := '';
+break_str := '';
+
+xLate_record.whichField := 0;
+xLate_record.int := 0;
+xLate_record.float := 0.0;
+//xLate_callStr := '';
+
+privacyFlag := '0';			// all members are private for now
+currentLineNumber := 0;
+mainCount := 0;
+conditionsProcessed := 0;
+tempVarNum := 0;
+tempResultNum := 0;
+ifOptionNum := 0;
+ifElseNum := 0;
+ifGuardLine := 0;
+//ifCondBlockNum := 0;
+if_else_num := 0;
+
+recursiveCurrentSub := FALSE;
+calledSelf := FALSE;
+wroteTail := FALSE;
+
+
+<</begin>>
+
+
+
+<<compiler_begin>>
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////			Beginning of compiler section		///////
+///////////////////////////////////////////////												///////
+<</compiler_begin>>
+
+
+Now let's actually use this procedure: 
+
+<<compiler_begin>>
+
+if isLiterate = TRUE then literate(input_file);
+if isLiterate = FALSE then close(input_file);
+
+//mode := 1;
+
+<</compiler_begin>>
+
+Next, we want to loop through the input file (whether or not it came from a literate source file), breaking up each line into chunks.  Breaking up each input line is a process we'll repeat in several sections of code, so it's convenient to move this code into a separate procedure.  Let's look at the code for this procedure.  First, of course, we have to define the procedure, declare its local variables and set the initial values of the variables we're going to use.
+
+<<getChunks>>
+
+///////////////////////////////////////////////									///////
+///////////////////////////////////////////////			Procedure getChunks		///////
+///////////////////////////////////////////////									///////
+
+procedure getChunks (var chunkyFile:text);
+
+var filledLineNum		:	boolean;
+	charFound			:	boolean;
+	countedTabs			:	boolean;
+	innerString			:	boolean;
+
+	lineNumStr			:	ANSIstring;
+	dumpStr				:	ANSIstring;
+
+//	numChunk			:	integer;
+	numLParens			:	integer;
+	numRParens			:	integer;
+	chunkType			:	integer;
+
+	label					else1;
+	label					else2;
+
+begin
+
+	dumpStr := '';
+	lineNumStr := '';
+	workingString := '';
+
+	firstChunk := '';
+	secondChunk := '';
+	thirdChunk := '';
+	fourthChunk := '';
+	fifthChunk := '';
+	sixthChunk := '';
+
+	sentenceType := 100;
+	numLParens	:= 0;
+	numRParens	:= 0;
+	countLetters := 1;
+	numChunk := 0;
+	chunkType := 0;
+	countLetters := 1;
+
+	filledLineNum := FALSE;
+	isComment := FALSE;
+	charFound := FALSE;
+	countedTabs := FALSE;
+	charFound := FALSE;
+	isComment := FALSE;
+	innerString := FALSE;
+	isIfGuard := FALSE;
+
+<</getChunks>>
+
+Next, we want to read the next line in the current file.  This is pretty easy:
+
+<<getChunks>>
+	readln(chunkyFile, workingString);		//writeln('    workingString: ' + workingString);
+<</getChunks>>
+
+
+Next, we need to handle both line numbers and literate inputs.  These tasks should be combined if we want to view all of the line numbering code in one place.
+
+<<getChunks>>
+
+//	writeln('properIndent: ' + intToStr(properIndent));
+
+	tabCount := 0;
+
+	if isLiterate = FALSE then currentLineNumber := currentLineNumber + 1;
+
+	if isLiterate = TRUE then begin
+
+		while filledLineNum = FALSE do begin
+
+			if midStr(workingString,countLetters,1) <> ' ' then lineNumStr := lineNumStr + midStr(workingString,countLetters,1);
+
+			if midStr(workingString,countLetters,1) = ' ' then begin
+				filledLineNum := TRUE;
+				if lineNumStr <> '' then currentLineNumber := currentLineNumber + 1;
+			end;
+
+			if filledLineNum = FALSE then countLetters := countLetters + 1;
+
+		end;
+
+	end;
+<</getChunks>>
+
+Next, we fill dumpStr with portions of workingString.  As we identify chunks of text that should be separated from one another, we can copy dumpStr into the various chunks, empty dumpStr and then continue forward until we reach the end of the string.  As we do this, we have to keep track of several different kinds of strings:
+
+- words separated by whitespace
+- quoted strings (surrounded by reverse quotes, and possibly containing whitespace)
+- groups of parentheses, possibly containing whitespace and/or quoted strings
+
+In order to preserve case-insensitivity, we'll force everything that isn't a quoted string to lowercase letters.
+
+Another consideration is comments.  In Straightjacket, a comment begins with the string // and extends to the end of the line, so we need to make sure we ignore anything that follows that string.
+
+<<getChunks>>
+
+	while countLetters <= length(workingString) do begin
+
+		if isComment = FALSE then begin
+
+			if charFound = FALSE then begin
+
+				if countedTabs = FALSE then begin
+					if midStr(workingString,countLetters,1) = chr(9) then tabCount := tabCount + 1;
+				end;
+
+				if (midStr(workingString,countLetters,1) <> ' ') AND (midStr(workingString,countLetters,1) <> chr(9)) then begin
+
+					countedTabs := TRUE;
+
+					if midStr(workingString,countLetters,1) = '(' then chunkType := 2;
+
+					if midStr(workingString,countLetters,1) = '[' then chunkType := 4;
+
+					if chunkType = 0 then begin
+						if (midStr(workingString,countLetters,1) <> '`') AND (midStr(workingString,countLetters,1) <> '(') then begin
+							if (midStr(workingString,countLetters,1) = '/') AND (midStr(workingString,countLetters+1,1) = '/') then isComment := TRUE;
+							if (midStr(workingString,countLetters,1) = '/') AND (midStr(workingString,countLetters+1,1) <> '/') then chunkType := 3;
+							if (midStr(workingString,countLetters,1) <> '/') then chunkType := 3;
+						end;
+					end;
+
+					if midStr(workingString,countLetters,1) = '`' then begin
+						chunkType := 1;
+						dumpStr := dumpStr + midStr(workingString,countLetters,1);
+						countLetters := countLetters + 1;
+					end;
+
+					if isComment = FALSE then charFound := TRUE;				
+				end;
+
+			end;	// if charFound = FALSE
+
+
+			if charFound = TRUE then begin
+
+				if chunkType = 1 then begin		// quoted strings
+
+					dumpStr := dumpStr + midStr(workingString,countLetters,1);
+
+					if midStr(workingString,countLetters,1) = '`' then chunkType := 0;
+
+					if (midStr(workingString,countLetters,1) = '\') AND (midStr(workingString,countLetters+1,1) = '`') then begin
+						dumpStr := dumpStr + midStr(workingString,countLetters+1,1);
+						countLetters := countLetters + 1;
+					end;
+
+				end;
+
+				if chunkType = 2 then begin		// strings bounded by parentheses
+
+					if midStr(workingString,countLetters,1) = '(' then numLParens := numLParens + 1;
+					if midStr(workingString,countLetters,1) = ')' then numRParens := numRParens + 1;
+
+					if numRParens > 0 then begin
+						if numLParens = numRParens then chunkType := 0;
+					end;
+
+					if midStr(workingString,countLetters,1) = '`' then begin
+						if innerString = TRUE then begin
+							innerString := FALSE;
+							goto else1;
+						end;
+						if innerString = FALSE then innerString := TRUE;
+						else1:
+					end;
+
+					if innerString = TRUE then dumpStr := dumpStr + midStr(workingString,countLetters,1);
+
+					if innerString = FALSE then begin
+						if (midStr(workingString,countLetters,1) <> ' ') AND (midStr(workingString,countLetters,1) <> chr(9)) then dumpStr := dumpStr + lowercase(midStr(workingString,countLetters,1));
+
+						if (midStr(workingString,countLetters,1) = ' ') OR (midStr(workingString,countLetters,1) = chr(9)) then begin
+						if (midStr(workingString,countLetters+1,1) <> ' ') AND (midStr(workingString,countLetters+1,1) <> chr(9)) then begin
+						if (midStr(workingString,countLetters-1,1) <> '(') then begin
+							if (midStr(workingString,countLetters+1,1) <> ')') then dumpStr := dumpStr + ' ';
+						end;
+						end;
+						end;
+					end;
+
+				end;	// if chunkType = 2
+
+				if chunkType = 3 then begin		// strings bounded by whitespace
+					if (midStr(workingString,countLetters,1) = ' ') OR (midStr(workingString,countLetters,1) = chr(9)) then chunkType := 0;
+
+					if (midStr(workingString,countLetters,1) <> ' ') AND (midStr(workingString,countLetters,1) <> chr(9)) then begin
+
+						if midStr(workingString,countLetters,1) <> '(' then dumpStr := dumpStr + lowercase(midStr(workingString,countLetters,1));
+
+						if midStr(workingString,countLetters,1) = '(' then begin
+							chunkType := 0;
+							countLetters := countLetters - 1;
+						end;
+
+					end;
+
+				end;
+
+				if chunkType = 4 then begin		// strings bounded by square brackets
+
+					if midStr(workingString,countLetters,1) = '[' then numLParens := numLParens + 1;
+					if midStr(workingString,countLetters,1) = ']' then numRParens := numRParens + 1;
+
+					if numRParens > 0 then begin
+						if numLParens = numRParens then chunkType := 0;
+					end;
+
+					if midStr(workingString,countLetters,1) = '`' then begin
+						if innerString = TRUE then begin
+							innerString := FALSE;
+							goto else2;
+						end;
+						if innerString = FALSE then innerString := TRUE;
+						else2:
+					end;
+
+					if innerString = TRUE then dumpStr := dumpStr + midStr(workingString,countLetters,1);
+
+					if innerString = FALSE then begin
+						if (midStr(workingString,countLetters,1) <> ' ') AND (midStr(workingString,countLetters,1) <> chr(9)) then dumpStr := dumpStr + lowercase(midStr(workingString,countLetters,1));
+
+						if (midStr(workingString,countLetters,1) = ' ') OR (midStr(workingString,countLetters,1) = chr(9)) then begin
+						if (midStr(workingString,countLetters+1,1) <> ' ') AND (midStr(workingString,countLetters+1,1) <> chr(9)) then begin
+						if (midStr(workingString,countLetters-1,1) <> '[') then begin
+							if (midStr(workingString,countLetters+1,1) <> ']') then dumpStr := dumpStr + ' ';
+						end;
+						end;
+						end;
+					end;
+
+				end;	// if chunkType = 4
+
+				if countLetters = length(workingString) then chunkType := 0;
+
+				if chunkType = 0 then begin
+
+					numChunk := numChunk + 1;
+
+					if numChunk = 1 then firstChunk := dumpStr;
+					if numChunk = 2 then secondChunk := dumpStr;
+					if numChunk = 3 then thirdChunk := dumpStr;
+					if numChunk = 4 then fourthChunk := dumpStr;
+					if numChunk = 5 then fifthChunk := dumpStr;
+					if numChunk = 6 then sixthChunk := dumpStr;
+
+					dumpStr := '';
+
+					charFound := FALSE;
+
+					if numChunk = 1 then begin
+						if firstChunk = 'if' then begin
+							countLetters := countLetters + 1;
+							if_handler();
+							numChunk := 0;
+						end;
+
+						if firstChunk = 'elseif' then begin
+							close_nesting();
+							sentenceType := 9;
+							countLetters := countLetters + 1;
+							if_handler();
+							numChunk := 0;
+						end;
+
+					end;
+
+					if sentenceType = 8 then countLetters := length(workingString);
+
+				end;
+
+
+
+			end;	// if charFound = TRUE
+
+		end;	// if isComment = FALSE
+
+		if isComment = TRUE then countLetters := length(workingString);
+
+		countLetters := countLetters + 1;
+
+
+	end;	// while countLetters <= length(workingString)
+
+<</getChunks>>
+
+The final thing to do is to set the sentenceType variable.  This will be one of the most important variables used throughout the compiler.  Here is a list of the sentence types used by this compiler:
+
+0	import statement
+1	return statement
+2	function definition
+3	procedure definition
+4	assignment
+5	variable declaration
+6	procedure call
+8	if-then statement
+9	elseif statement
+10	else statement
+11	loop statement
+12	break statement
+13	foreach statement
+14	halt statement
+16  type conversion
+17	literate import statement
+18	blank lines
+100	undefined sentence type
+
+<<getChunks>>
+	//
+	//	set sentence types
+	//
+
+	if firstChunk = 'else' then begin
+
+		if secondChunk = '' then sentenceType := 10;
+
+		if secondChunk <> '' then begin
+			writeln('The phrase "else" may not be followed by another statement on the same line.  Halting compilation.');
+			write('    offending module: ');		writeln(currentModule);
+			write('    offending line: ');		writeln(currentLineNumber);
+			write('    chunks: ');	writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+	end;
+
+	if (secondChunk = '') AND (firstChunk = 'loop') then sentenceType := 11;	// found loop statement
+
+	if (secondChunk = '') AND (firstChunk = 'break') then sentenceType := 12;	// found break statement
+
+	if secondChunk = '=' then sentenceType := 4;				// found assignment statement
+
+	if fourthChunk = '' then begin
+		if thirdChunk = '' then begin
+			if secondChunk = '' then begin
+				if firstChunk = 'halt' then sentenceType := 14;		// found halt statement
+				if firstChunk = '' then sentenceType := 18;			// found blank line
+			end;
+		end;
+
+		if secondChunk = 'is' then sentenceType := 16;				// found type conversion
+
+		if thirdChunk = '' then begin
+			if leftStr(secondChunk,1) = '(' then begin
+				if rightStr(secondChunk,1) = ')' then sentenceType := 6;	// found a procedure call
+			end;
+		end;
+	end;
+
+	if fourthChunk <> '' then begin
+		if firstChunk = 'import' then sentenceType := 0;			// found import statement
+		if firstChunk = 'limport' then sentenceType := 17;			// found literate import statement
+
+		if thirdChunk = 'is' then begin
+			if firstChunk = 'var' then sentenceType := 5;			// found variable declaration
+			if firstChunk = 'const' then sentenceType := 5;			// found constant declaration
+		end;
+	end;
+
+
+	if firstChunk = 'defun' then sentenceType := 2;					// found function declaration
+	if firstChunk = 'defproc' then sentenceType := 3;				// found procedure declaration
+
+	if firstChunk = 'return' then sentenceType := 1;				// found return statement
+
+	if sentenceType <> 18 then begin
+		write('    chunks (');	write(sentenceType);
+		writeln('): ' + firstchunk + '|' + secondChunk + '|' + thirdChunk + '|' + fourthChunk + '|' + fifthChunk + '|' + sixthChunk + '|');
+	end;
+
+//if (sentenceType <> 18) then ifGuardLine := 0;
+
+end;	// procedure getChunks
+<</getChunks>>
+
+Now that we've broken up the next line of text, we want to process the results.
+
+Every Straightjacket program consists of one or more modules, each of which is stored in a separate text file.  Modules can contain declarations for variables, constants, types, functions and procedures.  By default, these declarations are visible only to the module they're declared within.  Modules can also import other modules, which allows the subroutines in the calling module to access the exported identifiers in the called module.
+
+If any module imports exist, they'll be found at the top of the file, so let's handle those first.  Using the following code, this compiler can handle modules written using the literate programming style.
+
+<<compiler_1>>
+//	if firstChunk = 'limport' then begin
+//		countLetters := 2;
+//		headerString := '';
+//		while countLetters < length(secondChunk) - 1 do begin
+//			if countLetters < length(secondChunk) then headerString := headerString + secondChunk[countLetters];
+//			countLetters := countLetters + 1;
+//		end;
+//		assign(module_file, headerString);
+//		literate(module_file);
+//		end;
+//	end;	// if mode = 0
+
+<</compiler_1>>
+
+The next thing to do is to process regular module imports (or, if applicable, the output of the literate procedure).  The basic process is to search the input file (also called the root module) for module imports and, if found, jump to those files and look for more module imports.  Circular imports are allowed but not followed during this process.  When a module is found that imports no new modules, then other statements are processed.  When the end of the file is reached, statements in the previous module are processed and so on.  The last module to be processed is the root module, which must end with a "main" procedure.  The root module is also the only module that is allowed to contain a "main" procedure.
+
+<<compiler_1>>
+
+
+assign(module_output,'C:\Users\meterwin\Desktop\source code\working\imports.ll');
+rewrite(module_output);
+
+dumpStr := '0;root;root;' + firstArg;		// writeln('dumpStr: ' + dumpStr);
+modulePath.add(dumpStr);	// modulePath will be used to walk the import tree
+currentModuleFile := firstArg;
+testModuleEntry := '';
+
+endHeaderLoop := FALSE;
+finishedSubr := TRUE;
+returnTypeNeeded := FALSE;
+returnTypeUsed := FALSE;
+inAloop := FALSE;
+isAnIfstatement := FALSE;
+
+modulePathCount := 0;
+properIndent := 0;
+currentBlockNum := 0;
+//currentIfnum := 0;
+highestIfnum := 0;
+
+bodyString					:= '';
+
+IDfields_IDtype				:= '';
+IDfields_privacyFlag		:= '';
+IDfields_thirdField			:= '';
+IDfields_IDname				:= '';
+IDfields_fifthField			:= '';
+IDfields_sixthField			:= '';
+IDfields_lastVal			:= '';
+identifierTestIDName		:= '';
+identifierTestModuleName	:= '';
+identifierProcName			:= '';
+testdollarString			:= '';
+
+returnTypeStr				:= '';
+returnCodeStr				:= '';
+
+
+
+//
+// add test info to the output file
+//
+
+
+writeln(module_output,'@msg = internal constant [13 x i8] c"Hello World!\00"');
+writeln(module_output,'');
+writeln(module_output,'declare i32 @puts(i8*)');
+writeln(module_output,'declare void @exit(i32) noreturn nounwind');
+writeln(module_output,' ');
+
+
+//
+// loop through each entry in modulePath
+//
+
+while endHeaderLoop = FALSE do begin
+
+	//
+	//	re-check the entire list every time, as additional entries may be been added
+	//
+
+	endRecheckModulePathList := FALSE;
+	modulePathCount := modulePath.Count - 1;
+	foundUnusedEntry := FALSE;
+
+	while endRecheckModulePathList = FALSE do begin
+
+		testModuleEntry := modulePath.valueFromIndex[modulePathCount];
+
+		if leftStr(testModuleEntry,1) = '0' then begin
+			foundUnusedEntry := TRUE;
+			endRecheckModulePathList := TRUE;
+		end;
+
+		modulePathCount := modulePathCount - 1;
+
+		if modulePathCount < 0 then begin
+			endRecheckModulePathList := TRUE;
+			if foundUnusedEntry = FALSE then endHeaderLoop := TRUE;
+		end;
+	end;
+
+
+	if foundUnusedEntry = TRUE then begin
+		
+		modCharNum := 1;
+		dumpStr := '';
+		modCharTest := 0;
+
+		while modCharNum <= length(testModuleEntry) do begin
+
+			if midStr(testModuleEntry,modCharNum,1) <> ';' then dumpStr := dumpStr + midStr(testModuleEntry,modCharNum,1);
+
+			if midStr(testModuleEntry,modCharNum,1) = ';' then begin
+				modCharTest := modCharTest + 1;
+				if modCharTest = 3 then currentModule := dumpStr;	// set the module alias
+				dumpStr := '';
+			end;
+
+			if modCharNum = length(testModuleEntry) then currentModuleFile := dumpStr;	// set the path to the module we're going to process next
+
+			modCharNum := modCharNum + 1;
+
+		end;
+
+		//
+		// open currentModuleFile
+		//
+
+		writeln;
+		writeln('opening file "' + ExtractFileName(currentModuleFile) + '"');
+
+		assign(module_file,currentModuleFile);
+		reset(module_file);
+		currentLineNumber := 0;
+
+		//
+		// loop through module_file
+		//
+
+		while not EOF(module_file) do begin
+
+			getChunks(module_file);
+
+			//
+			//	only allow certain sentence types to be unindented
+			//
+
+			if tabCount = 0 then begin
+				if (sentenceType <> 0) AND (sentenceType <> 2) AND (sentenceType <> 3) AND (sentenceType <> 5) AND (sentenceType <> 15) AND (sentenceType <> 16) AND (sentenceType <> 17) AND (sentenceType <> 18) then begin
+					writeln('Only these sentenceTypes are permitted to appear without leading tabs:  module imports, identifier definitions and type conversions.  Halting compilation.');
+					write('    offending module: ');		writeln(currentModule);
+					write('    offending line: ');		writeln(currentLineNumber);
+					write('    chunks: ');	writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+			end;
+
+
+			//
+			//	error out when unknown sentenceTypes are found
+			//
+
+			if sentenceType = 100 then begin
+				writeln('Found unrecognized sentence type.  Halting compilation.');
+				write('    offending module: ');		writeln(currentModule);
+				write('    offending line: ');		writeln(currentLineNumber);
+				write('    chunks: ');	writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+
+
+			if firstChunk <> '' then begin
+
+				/////////////////////											///////
+				/////////////////////			Handle module imports			///////
+				/////////////////////											///////
+
+				if sentenceType = 0 then begin
+
+					secondChunk := midStr(secondChunk,2,length(secondChunk)-2);		// writeln('secondChunk: ' + secondChunk);
+
+					foundAlias := FALSE;
+					modulePathCount2 := modulePath.count - 1;
+					foundDuplicate := FALSE;
+
+					// check for duplicate file paths
+
+					endRecheckModulePathList := FALSE;
+					modulePathCount := modulePath.Count - 1;
+					foundUnusedEntry := FALSE;
+
+					while endRecheckModulePathList = FALSE do begin
+
+						testModuleEntry := modulePath.valueFromIndex[modulePathCount2];
+
+						if ansiContainsStr(testModuleEntry,secondChunk) then begin
+							if not ansiContainsStr(testModuleEntry,';' + fourthChunk + ';') then begin
+								foundDuplicate := TRUE;
+								endRecheckModulePathList := TRUE;
+							end;
+
+							if ansiContainsStr(testModuleEntry,';' + fourthChunk + ';') then begin
+								foundAlias := TRUE;
+								endRecheckModulePathList := TRUE;
+							end;
+						end;
+
+						modulePathCount2 := modulePathCount2 - 1;
+
+						if modulePathCount2 < 0 then endRecheckModulePathList := TRUE;
+
+					end;
+
+
+					if foundDuplicate = TRUE then begin
+
+						writeln;
+						writeln('found duplicate alias for imported module; unable to proceed.');
+						write('    offending module: ');		writeln(currentModule);
+						write('    offending line: ');		writeln(currentLineNumber);
+						write('    chunks: ');	writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+						close(module_file);
+						close(module_output);
+						halt;
+
+					end;
+
+
+					if foundDuplicate = FALSE then begin
+					if foundAlias = FALSE then begin
+
+						moduleNameThrowAway := '0;' + currentModule + ';' + fourthChunk + ';' + secondChunk;	// writeln('moduleNameThrowAway: ' + moduleNameThrowAway);
+						modulePath.add(moduleNameThrowAway);	// modulePath will be used to walk the import tree
+
+						writeln;
+						writeln('moving to file "' + extractFileName(secondChunk) + '"');
+						close(module_file);
+						assign(module_file,secondChunk);
+						reset(module_file);
+
+						currentLineNumber := 0;
+						currentModule := fourthChunk;
+						currentModuleFile := secondChunk;
+						properIndent := 0;
+
+					end;
+					end;
+
+				end;	// if sentenceType = 0
+
+<</compiler_1>>
+
+Recursive subroutines may call themselves, but only from the tail position.  In functions, tail calls may be followed by return statements.  Calls to the current subroutine are allowed within if-then statements, but those if-then statements must themselves be followed only by return statements, and they may not be embedded within other if-then statements or loops.
+
+<<compiler_1>>
+
+				//
+				//	print error and halt when disallowed statements follow tail calls
+				//
+
+				if recursiveCurrentSub = TRUE then begin
+					if calledSelf = TRUE then begin
+					if (sentenceType = 4) OR (sentenceType = 5) OR (sentenceType = 7) OR (sentenceType = 7) OR ((sentenceType >= 11) AND (sentenceType <= 18)) then begin
+						writeln('Recursive procedures must end with a call to the current subroutine in the tail position.  Halting compilation.');
+						writeln('    currentModule: ' + currentModule);
+						writeln('    offending file: ' + currentModuleFile);
+						write('    line number: ');  writeln(currentLineNumber);
+						write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+						halt;
+					end;
+					end;
+				end;
+
+
+<</compiler_1>>
+
+Straightjacket supports two kinds of subroutines; procedures and functions.  Procedures don't return values, and they have access to any identifier within their scope (parameters, variables and constants local to them, identifiers global to the current module and identifiers imported from other modules).  Functions do return values, and their scope is more restricted (parameters are read-only and identifiers outside of a function are completely inaccessible).
+
+In Straightjacket, procedure definitions look like this:
+
+	defproc foo()
+		something
+
+In the example above, the placeholder "something" is indented.  Like Python, Straightjacket uses indentation to determine scope.  In LLVM, a procedure definition looks like this:
+
+	define fastcc void @root.proc(){
+	entry:
+		something
+		ret void
+	}
+
+The keyword "fastcc" tells LLVM to use the fast calling convention.  Like C, LLVM represents procedures as functions with no return values, so we have to use the "void" keyword here.  The main procedure is a special case.  As far as Straightjacket is concerned, main() is a procedure because it doesn't supply a value to an expression.  However, it must still return a value to the operating system itself.  For this reason, the LLVM representation of main() looks like this:
+
+	define fastcc i32 @main(){
+	entry:
+		something
+		ret i32 0
+	}
+
+The keyword "i32" defines a a 32-bit integer, and returning a value of 0 indicates to the operating system that the program has terminated successfully (as opposed to catastrophically).
+
+Function definitions are similar.  Here is the Straightjacket version:
+
+	defun foo() return char
+		something
+		ret `a`
+
+Here's the LLVM version:
+
+	define fastcc i8 @root.proc(){
+	entry:
+		something
+		ret i8 97
+	}
+
+Procedures and functions can also call themselves.  To use this feature, Straightjacket requires the first line of a definition to contain the word "recursive" (although LLVM doesn't).  Here are two examples:
+
+	defproc foo() recursive
+
+	defun foo() recursive return char
+
+In both Straightjacket and LLVM, procedure definitions are very similar to function definitions.  For that reason, I've combined the definition-handling code for procedures (including the main procedure) and functions into the following code.
+
+<<compiler_1>>
+
+				/////////////////////													///////
+				/////////////////////			Handle subroutine definitions			///////
+				/////////////////////													///////
+
+				subrType := 0;
+				if sentenceType = 3 then subrType := 3;
+				if sentenceType = 2 then subrType := 2;		// functions
+
+
+				//
+				//	wrap up previous subroutines
+				//
+
+				if tabCount = 0 then begin
+				if currentSub <> '' then begin	// we're already in the middle of a subroutine declaration
+
+					close(module_output);
+					append(module_output);
+
+					if currentSub  = 'main' then begin
+						if tabCount < properIndent then close_nesting();
+
+						write(module_output,chr(9));
+
+						writeln(module_output,'br label %exit');
+						writeln(module_output);
+						writeln(module_output,'exit:');
+						writeln(module_output,chr(9) + 'ret i32 0');
+					end;
+
+					if currentSub <> 'main' then begin
+						if subrType = 3 then begin
+							if returnTypeNeeded = FALSE then writeln(module_output,chr(9) + 'ret void');
+						end;
+
+						if subrType = 2 then begin
+							if (returnCodeStr = '') AND (currentSub <> '') then begin
+								if returnTypeNeeded = FALSE then begin
+									if tabCount < properIndent then close_nesting();
+									write(module_output,chr(9));
+									writeln(module_output,'br label %exit');
+									writeln(module_output);
+									writeln(module_output,'exit:');
+									writeln(module_output,chr(9) + 'ret void');
+								end;
+							end;
+						end;
+
+						if (returnTypeNeeded = TRUE) AND (returnTypeUsed = FALSE) then begin
+							writeln('Found end of function without a return statement.  Halting compilation.');
+		
+							writeln('    currentModule: ' + currentModule);
+							writeln('    offending file: ' + currentModuleFile);
+							write('    line number: ');  writeln(currentLineNumber);
+							write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+							halt;
+						end;
+					end;
+
+					writeln(module_output,'}');
+					writeln(module_output,'');
+
+					currentSub := '';
+					returnCodeStr := '';
+
+					finishedSubr := TRUE;
+					wroteTail := FALSE;
+
+
+				end;	// if currentSub <> ''
+				end;	// if tabCount = 0
+
+				if subrType <> 0 then begin		// found a subroutine definition
+
+					if subrType = 3 then returnTypeStr := 'void';
+	
+					if subrType = 2 then begin
+						if fifthChunk = 'char' then returnTypeStr := 'i8';
+					end;
+
+					calledSelf := FALSE;
+
+					//
+					//	define special values for the type of declaration we have
+					//	returnTypeStr
+					//	for functions, store the function bodies in separate reference files
+					//
+
+					if currentSub = '' then begin		// handle the first subroutine declaration found
+
+						if sentenceType = 2 then begin
+							returnTypeNeeded := TRUE;		// we're starting a function
+							returnTypeUsed := FALSE;
+						end;
+
+						if sentenceType = 3 then returnTypeNeeded := FALSE;		// we're starting a procedure
+
+						if properIndent = 0 then properIndent := 1;		// we're starting an enclosure, so we should increment properIndent
+
+						finishedSubr := FALSE;
+
+						close(module_output);
+						append(module_output);
+
+						currentSub := secondChunk;
+
+						//
+						//	set recursiveCurrentSub flag and recursionFlag for later use
+						//
+
+						if fourthChunk = 'recursive' then begin
+							recursiveCurrentSub := TRUE;
+							recursionFlag := '1';
+						end;
+
+						if fourthChunk <> 'recursive' then begin
+							recursiveCurrentSub := FALSE;
+							recursionFlag := '0';
+						end;
+
+						if (sentenceType = 2) OR (sentenceType = 3) then begin
+
+							endParamLoop := FALSE;
+							i := pos('(',thirdChunk)+1;
+							subrParams := '';
+
+							while endParamLoop = FALSE do begin
+
+								if midStr(thirdChunk,i,1) <> ')' then subrParams := subrParams + midStr(thirdChunk,i,1);
+
+								if midStr(thirdChunk,i,1) = ')' then endParamLoop := TRUE;
+
+								i := i + 1;
+
+								if (i > length(thirdChunk)) AND (endParamLoop = FALSE) then begin
+									writeln('Multi-line parameter lists are not yet supported.  Halting compilation.');
+
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+
+							end;
+
+							// check to see whether procParamCount = length(thirdChunk).  if not, fill a variable with whatever non-whitespace characters we find.
+							// if what we find is "recursive", then set a flag.  if not, then error and halt the program.
+							// go on to check the rest of the line as well.
+
+							if sentenceType = 3 then begin
+								if (fourthChunk <> '') AND (fourthChunk <> 'recursive') then begin
+									writeln('Found improper keyword "' + fourthChunk + '" following procedure''s parameter list.  Halting compilation.');
+	
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+							end;
+
+							if sentenceType = 2 then begin
+								if (fourthChunk = 'return') AND (fifthChunk = 'recursive') then begin
+									writeln('The recursive keyword must precede the return keyword.  Halting compilation.');
+	
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+							end;
+
+							if (secondChunk = 'main') AND (subrParams <> '') then begin
+								writeln('The main procedure doesn''t use parameters.  Halting compilation.');
+
+								writeln('    currentModule: ' + currentModule);
+								writeln('    offending file: ' + currentModuleFile);
+								write('    line number: ');  writeln(currentLineNumber);
+								write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+								halt;
+							end;
+
+
+							if leftStr(currentSub,1) = '$' then begin
+								privacyFlag := '1';
+								currentSub := rightStr(currentSub,length(currentSub)-1);
+							end;
+
+
+							//
+							//	need to double-check that we're not adding duplicates
+							//
+
+							i := 0;
+
+							while i < identifierList.count do begin
+
+								identifierList_extract(i);
+
+								if IDfields_IDname = currentModule + '.' + secondChunk then begin
+									writeln('Found duplicate subroutine definition.  Halting compilation.');
+
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+
+								i := i + 1;
+
+							end;
+
+
+							if subrType = 3 then identifierList.add('0:' + privacyFlag + ':' + recursionFlag + ':' + currentModule + '.' + currentSub + ':0:' + subrParams);
+							if subrType = 2 then begin
+								if returnTypeStr = 'i8' then identifierList.add('1:' + privacyFlag + ':' + recursionFlag + ':' + currentModule + '.' + currentSub + ':2:' + subrParams);
+							end;
+
+								// the format is this:  <identifier type>:<privacy flag>:<recursion flag>:<identifier name>:<return type>:<parameter types>
+
+
+							//
+							//	need to add code to specify that all following code of equal
+							//	or greater tabCount needs to be copied into a special reference file
+							//	(for functions).
+							//
+
+
+
+							// write down the initial procedure definition
+
+							if currentSub = 'main' then begin
+
+								if subrType = 2 then begin
+									writeln('The procedure "main" must be specified as a procedure, not as a function.  Halting compilation.');
+
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+
+								wroteTail := FALSE;
+
+								mainCount := mainCount + 1;
+
+								if currentModule = 'root' then begin
+									writeln(module_output);
+									write(module_output,'define fastcc i32 @');
+									write(module_output,currentSub+thirdChunk);		// the third chunk is the (empty) parameter list
+								end;
+
+								if currentModule <> 'root' then begin
+									writeln('The procedure "main" is special, and should only be specified in the root module.  Halting compilation.');
+
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+
+								if mainCount > 1 then begin
+									writeln('The procedure "main" is special, and should only be specified once.');
+
+									writeln('    currentModule: ' + currentModule);
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+
+							end;
+
+							if currentSub <> 'main' then begin
+
+								if sentenceType = 2 then begin
+									writeln(module_output);
+									if (fifthChunk = 'char') OR (sixthChunk = 'char') then write(module_output,'define fastcc i8 @');
+								end;
+
+								if sentenceType = 3 then write(module_output,'define fastcc void @');
+
+								write(module_output,currentModule);
+								write(module_output,'.');
+								write(module_output,currentSub + '(');
+
+								wroteTail := FALSE;
+
+								//
+								// need to translate the parameter list
+								//
+	
+								countLetters := 1;
+								endParamLoop := FALSE;
+								dumpStr := '';
+								paramLoopCount := 0;
+								paramType := '';
+	
+								while endParamLoop = FALSE do begin
+	
+									if (midStr(subrParams,countLetters,1) <> ' ') AND (midStr(subrParams,countLetters,1) <> chr(9)) then begin
+										if (midStr(subrParams,countLetters,1) <> ',') then dumpStr := dumpStr + midStr(subrParams,countLetters,1);
+
+										if (midStr(subrParams,countLetters,1) = ',') then begin
+											if (paramType = 'char') then begin
+												write(module_output,dumpStr + ', ');
+												identifierList.add('2:0:0:' + currentModule + '.' + currentSub + '.' + dumpStr + ':0:0:' + chr(0));
+											end;
+											dumpStr := '';
+											paramLoopCount := 0;
+											paramType := '';
+										end;
+									end;
+	
+									if (midStr(subrParams,countLetters,1) = ' ') OR (midStr(subrParams,countLetters,1) = chr(9)) then begin
+	
+										if dumpStr <> '' then begin
+											if (paramLoopCount = 0) AND (dumpStr = 'char') then begin
+												write(module_output,'i8 %');
+												paramType := dumpStr;		// writeln('    dumpStr: ' + dumpStr);
+												dumpStr := '';
+	
+											end;
+	
+											if (paramLoopCount = 1) AND (paramType = 'char') then begin
+												write(module_output,dumpStr);
+												identifierList.add('2:0:0:' + currentModule + '.' + currentSub + '.' + dumpStr + ':0:0:' + chr(0));
+		
+												if pos(dumpStr,midStr(subrParams,countLetters,length(subrParams))) > 0 then begin
+													writeln('Found duplicate parameter in subroutine "' + currentSub + '".  Halting compilation.');
+				
+													writeln('    currentModule: ' + currentModule);
+													writeln('    offending file: ' + currentModuleFile);
+													write('    line number: ');  writeln(currentLineNumber);
+													write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+													halt;
+												end;
+		
+												endParamLoop := TRUE;
+		
+											end;
+	
+											paramLoopCount := paramLoopCount + 1;
+										end;
+
+									end;
+
+									countLetters := countLetters + 1;
+									if countLetters > length(subrParams) then begin
+										if (paramType = 'char') then begin
+											write(module_output,dumpStr);
+											identifierList.add('2:0:0:' + currentModule + '.' + currentSub + '.' + dumpStr + ':0:0:' + chr(0));
+										end;
+										endParamLoop := TRUE;
+									end;
+	
+								end;
+	
+
+								write(module_output,')');
+							end;
+
+
+
+							writeln(module_output,'{');
+							writeln(module_output,'enter:');
+							bodyString := '$1';
+
+							// hello world code for testing purposes
+
+							if returnTypeNeeded = FALSE then writeln(module_output,'	call i32 @puts(i8* getelementptr inbounds ([13 x i8]* @msg, i32 0, i32 0))');
+								// functions shouldn't have side effects, or access to global values or procedures
+
+							close(module_output);
+							append(module_output);
+
+						end;	// if (sentenceType = 2) OR (sentenceType = 3)
+
+						// translate the parameters (not supported in this first version)
+
+					end;	// if currentSub = ''
+
+
+				end;	// if subrType <> 0
+
+<</compiler_1>>
+
+Next, I'm calling the statement handler procedure when a non-halt statement is found.
+
+<<compiler_1>>
+
+				if subrType = 0 then statement_handler();		// handle other statements
+
+			end;	// if firstChunk <> ''
+
+		end;	// while not EOF(module_file)
+
+<</compiler_1>>
+
+The following code describes what to do when we reach the end of a module file.  Basically we do two things; we finish writing any procedures that haven't been finished, and we alter the modulePath entry so that we don't process any module more than once.
+
+<<compiler_1>>
+
+		//
+		//	when reaching the end of a module file, we need to mark that file as an alias
+		//	in the modulePath list so that we don't re-process it.
+		//
+
+
+		if EOF(module_file) = TRUE then begin
+
+			currentLineNumber := 0;
+
+			writeln('found end of module "' + currentModule + '"');
+
+			// if we don't close and re-open the module_output file after reaching the end of the module_file,
+			// free pascal will ditch some of the information
+
+			close(module_output);
+			append(module_output);
+
+			if finishedSubr = FALSE then begin	// we're already in the middle of a procedure declaration
+			if currentSub <> '' then begin
+			if firstChunk = '' then begin
+
+				if tabCount < properIndent then close_nesting();
+				write(module_output,chr(9));
+				writeln(module_output,'br label %exit');
+				writeln(module_output);
+				writeln(module_output,'exit:');
+
+				if currentSub = 'main' then writeln(module_output,chr(9) + 'ret i32 0');
+				if currentSub <> 'main' then begin
+					if returnTypeNeeded = FALSE then writeln(module_output,chr(9) + 'ret void');
+				end;
+
+				writeln(module_output,'}');
+				writeln(module_output,'');
+
+				currentSub := '';
+				finishedSubr := TRUE;
+
+				properIndent := 0;
+
+			end;
+			end;
+			end;
+
+			close(module_output);
+			append(module_output);
+
+			modulePathCount3 := modulePath.count - 1;
+
+
+			//
+			// look for an original entry pointing to the just-closed file so that we can make it an alias
+			//
+
+
+			while modulePathCount3 >= 0 do begin
+
+				testModuleEntry := modulePath.valueFromIndex[modulePathCount3];
+
+				if ansiContainsStr(testModuleEntry,currentModuleFile) = TRUE then begin
+				if leftStr(testModuleEntry,1) = '0' then begin
+
+					dumpStr := '1' + rightStr(testModuleEntry,length(testModuleEntry) - 1);		//writeln('dumpStr: ' + dumpStr);
+					writeln('deleting this entry: ' + modulePath.valueFromIndex[modulePathCount3]);
+					modulePath.delete(modulePathCount3);
+					modulePath.add(dumpStr);
+					writeln('adding this entry: ' + dumpStr);
+				end;
+				end;
+
+				modulePathCount3 := modulePathCount3 - 1;
+
+			end;
+
+			close(module_file);
+
+		end;	// if EOF(module_file) = TRUE
+
+
+	end;	// if foundUnusedEntry = TRUE
+
+
+
+	//
+	//	re-check the entire list every time, as additional entries may be been added
+	//
+
+	endRecheckModulePathList := FALSE;
+	modulePathCount := modulePath.Count - 1;
+	foundUnusedEntry := FALSE;
+
+	while endRecheckModulePathList = FALSE do begin
+
+		testModuleEntry := modulePath.valueFromIndex[modulePathCount];	
+
+		if leftStr(testModuleEntry,1) = '0' then begin
+			foundUnusedEntry := TRUE;
+			endRecheckModulePathList := TRUE;
+			endHeaderLoop := FALSE;
+		end;
+
+		modulePathCount := modulePathCount - 1;
+
+		if modulePathCount < 0 then begin
+			endRecheckModulePathList := TRUE;
+			if foundUnusedEntry = FALSE then endHeaderLoop := TRUE;
+		end;
+	end;
+
+end;	// while endHeaderLoop = FALSE
+
+if mainCount = 0 then begin
+	writeln('The procedure "main" is special, and must be specified once in the root module.');
+
+	writeln('    currentModule: ' + currentModule);
+	writeln('    offending file: ' + currentModuleFile);
+	write('    line number: ');  writeln(currentLineNumber);
+	write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+	halt;
+end;
+
+if finishedSubr = FALSE then begin	// we're already in the middle of a procedure declaration
+	if currentSub = 'main' then writeln(module_output,chr(9) + 'ret i32 0');
+	if currentSub <> 'main' then writeln(module_output,chr(9) + 'ret void');
+
+	writeln(module_output,'}');
+	writeln(module_output,'');
+end;
+
+close(module_output);
+
+
+<</compiler_1>>
+
+Now let's talk about statements.  Because if-then statements are so different from other statements, we'll need to handle them separately.  Right now, we'll just handle if guards, which are one-line if-then statements.  Here's an example of what one might look like in Straightjacket:
+
+	if (variableName = `a`) then statement
+
+The condition must be enclosed within parentheses, and it must begin with a variable or constant.  Whitespace isn't significant, except between reverse quotes.  The comparison symbol may be any one of these:
+
+	=	equal to
+	>=	greater than or equal to
+	=<	less than or equal to
+	!=	not equal to
+	>	greater than
+	<	less than
+
+The right-hand side of a condition may be a variable, a constant, a function result or a literal.  Finally, the statement is whatever follows the "then" keyword.  This cannot be another if-then statement, but it may be any other one-line statement.
+
+	You may have noticed that Straightjacket uses the equal sign for both the equality operator and the assignment operator.  This is intentional.  Not only is it easy to write a compiler that uses context to discern the difference, but forcing the operator to mean only one of these things in a particular context prevents certain errors from occuring.  In Straightjacket, the equal sign means "equality" when is appears within a condition.  When it appears anywhere else, it means "assignment".  This approach means that typos are less likely, and it also means that the compiler will never be confused as to the meaning of the operator.
+
+To translate conditions to LLVM, we'll have to create temporary variables.  Then we just branch to one block or another depending on the result.  Here's an example:
+
+	%tmp = icmp eq i32 %a, %b
+
+The string "eq" stands for "equals", and there are other comparison options for the other conditions.
+
+Using logical operators, conditions can also be combined to form complex conditions.  Here's one example:
+
+	if ((variableName = `a`) AND (variableName2 = `b`)) OR ((variableName = `c`) XOR (variableName = `d`)) then statement
+
+To process these correctly, we need to break up these complex conditions into a series of simple conditions that can be evaluated and compared to one another.  My approach will be to fill a TStringList with substrings from the condition, and then keep breaking up those substrings until every entry is a simple condition.  We'll also need to add information to describe how they're nested, and I'll do that by starting each line with an asterisk and a number indicating how many simple conditions the next operator collectively refers to.  Here's how the example above would be translated:
+
+	*0 and variableName = `a`
+	*1 and variableName2 = `b`
+	*2 or variableName = `c`
+	*1 xor variableName = `d`
+
+The result of all of the comparisons will be a single branch statement; either process the statement or skip to the line following the if guard.
+
+In some cases, we can and should short-circuit the processing of these comparisons.  Because conditions can be arbitrarily complex, we can only short-circuit conditional evaluation when the leading number is greatest.  When the temporary variable on the left of that entry is true, we can immediately jump to the statement.  When the temporary variable on the left of that entry is false, we can immediately jump to the line following the if guard.
+
+<<if_handler>>
+
+///////////////////////////////////////////////										///////
+///////////////////////////////////////////////			Procedure if_handler		///////
+///////////////////////////////////////////////										///////
+
+
+procedure if_handler ();
+
+var		conditionString		:	ANSIstring;
+		leftValueStr		:	ANSIstring;
+		rightValueStr		:	ANSIstring;
+		compareOpStr		:	ANSIstring;
+		oneChar				:	ANSIstring;
+		compareStr			:	ANSIstring;
+
+		Lparens				:	integer;
+		Rparens				:	integer;
+		numEq				:	integer;
+		lastEntryNum		:	integer;
+		innerLoopCount		:	integer;
+		count				:	integer;
+		valueLtype			:	integer;
+		valueRtype			:	integer;
+		properOperator		:	integer;
+		whichOperator		:	integer;
+		countOperators		:	integer;
+		totalOperators		:	integer;
+		firstCount			:	integer;
+		secondCount			:	integer;
+		branchable			:	integer;
+		totalEq				:	integer;
+		numIncLparen		:	integer;
+		numIncRparen		:	integer;
+		i					:	integer;
+		j					:	integer;
+
+		isString			:	boolean;
+		endLoop				:	boolean;
+		endInnerLoop		:	boolean;
+		foundMatch			:	boolean;
+		isLiteral			:	boolean;
+		triggerOnRight		:	boolean;
+		startRecording		:	boolean;
+		recordedSecondCount	:	boolean;
+
+		label else_label;
+		label else_label2;
+
+begin
+
+highestIfnum := highestIfnum + 1;
+ifElseNum := ifElseNum + 1;
+else_list.add(intToStr(tabCount) + ':' + intToStr(ifElseNum));
+//currentBlockNum := currentBlockNum + 1;
+if_else_num := if_else_num + 1;
+//loop_list.add('8:' + intToStr(tabCount) + ':' + intToStr(currentBlockNum));
+loop_list.add('8:' + intToStr(tabCount) + ':' + intToStr(if_else_num));
+
+valueLtype := 0;
+valueRtype := 1;
+	// set valueLtype and valueRtype to invalid default types, so that any mismatches will be detected
+
+
+//
+//	the first thing we need to do is to branch to an if-block, which will contain whatever code we need to evaluate the conditional.
+//
+
+control_list.add('if');
+//currentBlockNum := currentBlockNum + 1;
+writeln(module_output,chr(9) + 'br label %if$' + intToStr(if_else_num));
+writeln(module_output);
+writeln(module_output,'if$' + intToStr(if_else_num) + ':');
+
+//
+//	next, we need to separate the conditional from the keyword "then".  it must be enclosed within parentheses, and it must be followed by the keyword "then".
+//
+
+conditionString := '';
+endLoop := FALSE;
+
+while endLoop = FALSE do begin
+
+	if (midStr(workingString,countLetters,1) <> ' ') AND (midStr(workingString,countLetters,1) <> chr(9)) then conditionString := conditionString + midStr(workingString,countLetters,1);
+
+	if (midStr(workingString,countLetters,1) = ' ') OR (midStr(workingString,countLetters,1) = chr(9)) then begin
+	if (midStr(workingString,countLetters+1,1) <> ' ') AND (midStr(workingString,countLetters+1,1) <> chr(9)) then begin
+		if (midStr(workingString,countLetters+1,1) <> '(') AND (midStr(workingString,countLetters+1,1) <> ')') then begin
+			conditionString := conditionString + midStr(workingString,countLetters,1);
+		end;
+
+		if (midStr(workingString,countLetters+1,1) = '(') OR (midStr(workingString,countLetters+1,1) = ')') then begin
+		if (midStr(workingString,countLetters-1,1) <> ' ') AND (midStr(workingString,countLetters-1,1) <> chr(9)) then begin
+			conditionString := conditionString + midStr(workingString,countLetters,1);
+		end;
+		end;
+	end;
+	end;
+
+	if (midStr(workingString,countLetters,6) = ' then ') then begin
+		endLoop := TRUE;
+		countLetters := countLetters + 4;
+	end;
+
+	if (midStr(workingString,countLetters,5) = ' then') then begin
+	if countLetters = length(workingString) - 4 then begin
+		endLoop := TRUE;
+		countLetters := countLetters + 4;
+	end;
+	end;
+
+	countLetters := countLetters + 1;
+
+	if countLetters > length(workingString)+1 then begin
+		writeln('Found end of line before "then" keyword.  Halting compilation.');
+		writeln('    currentModule: ' + currentModule);
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+		halt;
+	end;
+end;
+<</if_handler>>
+
+The logical operators used by Straightjacket's conditionals are infix operators, and therefore they take arguments to both the left and the right.  Furthermore, operators can apply to nested parentheses.  In order to process complex conditionals properly, logical operators must be separated from the simple conditional tests to which they refer, along with information about which results must be compared.
+
+<<if_handler>>
+
+//
+//	determine how many logical and conditional operators conditionString contains
+//
+
+i := 1;
+dumpStr := '';
+Lparens := 0;
+Rparens := 0;
+numEq := 0;
+totalOperators := 0;
+totalEq := 0;
+isString := FALSE;
+
+//writeln('conditionString: ' + conditionString);
+
+while i <= length(conditionString) do begin
+
+	if (midStr(conditionString,i,1) = '(') then Lparens := Lparens + 1;
+	if (midStr(conditionString,i,1) = ')') then Rparens := Rparens + 1;
+
+	if (midStr(conditionString,i,1) <> ' ') then dumpStr := dumpStr + lowercase(midStr(conditionString,i,1));
+
+	if (midStr(conditionString,i,1) = ' ') then begin
+		if (dumpStr = 'or') OR (dumpStr = 'and') OR (dumpStr = 'xor') then totalOperators := totalOperators + 1;
+		dumpStr := '';
+	end;
+
+	if (midStr(conditionString,i,1) = '=') OR ((midStr(conditionString,i,1) = '>') AND (midStr(conditionString,i+1,1) <> '=')) OR ((midStr(conditionString,i,1) = '<') AND (midStr(conditionString,i-1,1) <> '=')) then numEq := numEq + 1;
+
+	i := i + 1;
+
+end;	// while i < length(conditionString)
+
+totalEq := numEq;
+numEq := 0;
+
+//writeln('totalOperators: ' + intToStr(totalOperators));
+
+//
+//	fill operator_list
+//
+
+endLoop := FALSE;
+recordedSecondCount := FALSE;
+compareStr := '';
+whichOperator := 0;
+properOperator := 1;
+firstCount := 0;
+secondCount := 0;
+Lparens := 0;
+Rparens := 0;
+branchable := 0;
+countOperators := 0;
+i := 1;
+count := 0;
+
+
+while endLoop = FALSE do begin
+
+	if compareStr = '' then begin
+
+		i := 1;
+		dumpStr := '';
+		countOperators := 0;
+		numEq := 0;
+		recordedSecondCount := FALSE;
+		numIncLparen := 0;
+		numIncRparen := 0;
+		isString := FALSE;
+
+		while i < length(conditionString) do begin
+
+			if (midStr(conditionString,i,1) = '(') then Lparens := Lparens + 1;
+			if (midStr(conditionString,i,1) = ')') then Rparens := Rparens + 1;
+
+			if (midStr(conditionString,i,1) = '`') then begin
+				if isString = TRUE then begin
+					if (midStr(conditionString,i-1,1) <> '\') then isString := FALSE;
+					if (midStr(conditionString,i-1,1) = '\') AND (midStr(conditionString,i-2,1) = '\') then isString := FALSE;
+					goto else_label2;
+				end;
+
+					if isString = FALSE then isString := TRUE;
+
+				else_label2:
+			end;
+
+			if (midStr(conditionString,i,1) = '=') OR ((midStr(conditionString,i,1) = '>') AND (midStr(conditionString,i+1,1) <> '=')) OR ((midStr(conditionString,i,1) = '<') AND (midStr(conditionString,i-1,1) <> '=')) then countOperators := countOperators + 1;
+
+			if (midStr(conditionString,i,1) <> ' ') AND (midStr(conditionString,i,1) <> '(') AND (midStr(conditionString,i,1) <> ')') then begin
+				if (isString = FALSE) then dumpStr := dumpStr + lowercase(midStr(conditionString,i,1));
+				if (isString = TRUE) then dumpStr := dumpStr + midStr(conditionString,i,1);
+			end;
+
+			if (midStr(conditionString,i,1) = '=') OR ((midStr(conditionString,i,1) = '>') AND (midStr(conditionString,i+1,1) <> '=')) OR ((midStr(conditionString,i,1) = '<') AND (midStr(conditionString,i-1,1) <> '=')) then begin
+				numEq := numEq + 1;
+				count := count + 1;
+			end;
+
+
+			if (midStr(conditionString,i,1) = ' ') then begin
+
+				if (dumpStr = 'or') OR (dumpStr = 'and') OR (dumpStr = 'xor') then begin
+					whichOperator := whichOperator + 1;
+	
+					if whichOperator = properOperator then begin
+						compareStr := dumpStr;
+						firstCount := numEq;
+					end;
+				end;
+				dumpStr := '';
+			end;
+
+
+			if compareStr <> '' then begin
+
+				if midStr(conditionString,i,1) = '(' then numIncLparen := numIncLparen + 1;
+
+				if midStr(conditionString,i,1) = ')' then begin
+
+					numIncRparen := numIncRparen + 1;
+	
+					if numIncLparen = numIncRparen then begin
+		
+						if recordedSecondCount = FALSE then begin
+							secondCount := numEq;
+							recordedSecondCount := TRUE;
+						end;
+		
+					end;
+				end;
+			end;
+
+			i := i + 1;
+
+		end;	// while i < length(conditionString)
+
+//		if (totalEq = secondCount) AND (firstCount <> totalEq-1) then branchable := 1;
+		if (totalEq = secondCount) then branchable := 1;
+
+		recordedSecondCount := FALSE;
+
+	end;	// if compareStr = ''
+
+	if compareStr <> '' then begin
+
+		operator_list.add(intToStr(firstCount+tempVarNum) + ':' + intToStr(secondCount+tempVarNum) + ':' + intToStr(branchable) + ':' + compareStr);
+
+//		writeln('new operator: ' + intToStr(firstCount+tempVarNum) + ':' + intToStr(secondCount+tempVarNum) + ':' + intToStr(branchable) + ':' + compareStr);
+
+		properOperator := properOperator + 1;
+
+		compareStr := '';
+		firstCount := 0;
+		secondCount := 0;
+		branchable := 0;
+		countOperators := 0;
+	end;
+
+	if properOperator > totalOperators then endLoop := TRUE;
+
+//	writeln('properOperator: ' + intToStr(properOperator));
+//	writeln('totalOperators: ' + intToStr(totalOperators));
+
+	whichOperator := 0;
+	recordedSecondCount := FALSE;
+	Rparens := 0;
+	Lparens := 0;
+	count := 0;
+
+end;	// while endLoop = FALSE
+
+
+
+//
+//	extract simple conditions from the conditionals string
+//	and stuff them into cond_list
+//
+
+i := 1;
+Rparens := 0;
+countOperators := 0;
+
+isString := FALSE;
+triggerOnRight := FALSE;
+startRecording := FALSE;
+dumpStr := '';
+
+//writeln('conditionString: ' + conditionString);
+
+while i <= length(conditionString) do begin
+
+	if midStr(conditionString,i,1) = '`' then begin
+
+		if isString = TRUE then begin
+			if (midStr(conditionString,i-1,1) <> '\') then isString := FALSE;
+			if (midStr(conditionString,i-1,1) = '\') AND (midStr(conditionString,i-2,1) = '\') then isString := FALSE;
+			goto else_label;
+				// using a goto statement only because pascal doesn't support complex if-statements
+		end;
+
+			if isString = FALSE then isString := TRUE;
+
+		else_label:
+
+	end;
+
+	if isString = TRUE then dumpStr := dumpStr + midStr(conditionString,i,1);
+
+	if isString = FALSE then begin
+		if (midStr(conditionString,i,1) = '(') then startRecording := TRUE;
+
+		if startRecording = TRUE then begin
+			if (midStr(conditionString,i,1) <> '(') AND (midStr(conditionString,i,1) <> ')') then dumpStr := dumpStr + lowercase(midStr(conditionString,i,1));
+
+			if (trim(dumpStr) = 'or') OR (trim(dumpStr) = 'and') OR (trim(dumpStr) = 'xor') then dumpStr := '';
+
+			if (midStr(conditionString,i,1) = '=') OR ((midStr(conditionString,i,1) = '>') AND (midStr(conditionString,i+1,1) <> '=')) OR ((midStr(conditionString,i,1) = '<') AND (midStr(conditionString,i-1,1) <> '=')) then begin
+				countOperators := countOperators + 1;
+				triggerOnRight := TRUE;
+			end;
+	
+			if triggerOnRight = TRUE then begin
+				if (midStr(conditionString,i,1) = ')') then begin
+
+//				writeln('dumpStr: ' + '|' + dumpStr + '|');
+
+				if trim(dumpStr) <> '' then begin
+					dumpStr := '=' + trim(dumpStr);
+					cond_list.add(dumpStr);
+					dumpStr := '';
+					triggerOnRight := FALSE;
+				end;
+				end;
+			end;
+		end;
+	end;
+
+	i := i + 1;
+
+end;	// while i <= length(conditionString)
+
+//writeln('cond_list.count: ' + intToStr(cond_list.count));
+
+
+
+//
+//	next, we loop through the simple conditions and translate them to LLVM
+//
+
+i := 0;
+lastEntryNum := cond_list.count;
+
+//writeln('lastEntryNum: ' + intToStr(lastEntryNum));
+
+while i < lastEntryNum do begin
+
+	conditionString := cond_list.valueFromIndex[i];
+//	writeln('conditionString: ' + conditionString);
+
+	dumpStr := '';
+	j := 1;
+
+	//
+	//	fill leftValueStr and look it up in identifierList
+	//
+
+	endInnerLoop := FALSE;
+
+	while endInnerLoop = FALSE do begin
+		if midStr(conditionString,j,1) <> ' ' then dumpStr := dumpStr + midStr(conditionString,j,1);
+		if midStr(conditionString,j,1) = ' ' then endInnerLoop := TRUE;
+		j := j + 1;
+	end;
+
+	leftValueStr := dumpStr;
+	dumpStr := '';
+
+
+//	writeln('leftValueStr: ' + leftValueStr);
+
+	endInnerLoop := FALSE;
+	foundMatch := FALSE;
+	innerLoopCount := 0;
+
+	while endInnerLoop = FALSE do begin
+
+		identifierList_extract(innerLoopCount);
+
+		if IDfields_IDname = leftValueStr then begin
+			foundMatch := TRUE;
+			leftValueStr := '@' + leftValueStr;
+		end;
+
+		if IDfields_IDname = currentModule + '.' + leftValueStr then begin
+			foundMatch := TRUE;
+			leftValueStr := '@' + leftValueStr;
+		end;
+
+		if IDfields_IDname = currentModule + '.' + currentSub + '.' + leftValueStr then begin
+			foundMatch := TRUE;
+			leftValueStr := '%' + leftValueStr;
+		end;
+
+		if foundMatch = TRUE then begin
+
+			if IDfields_IDtype = '2' then valueLtype := 2;
+
+			if strToInt(IDfields_IDtype) > 1 then begin
+				if IDfields_lastVal <> '' then begin
+					if leftStr(IDfields_lastVal,1) = '\' then leftValueStr := IDfields_lastVal;
+					if leftStr(IDfields_lastVal,1) <> '\' then leftValueStr := '`' + IDfields_lastVal + '`';
+				end;
+
+				if IDfields_lastVal = '' then begin
+					if IDfields_sixthField = '0' then leftValueStr := '%' + leftValueStr;
+					if IDfields_sixthField = '1' then leftValueStr := '@' + leftValueStr;
+				end;
+			end;
+
+			if strToInt(IDfields_IDtype) <= 1 then begin
+				writeln('Found subroutine on the left side of the conditional operator in condition "' + conditionString + '".  Only variables and constants may appear on the left side of conditional expressions.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    condition: ');  writeln(conditionString);
+				halt;
+			end;
+
+			endInnerLoop := TRUE;
+		end;
+
+		innerLoopCount := innerLoopCount + 1;
+		if innerLoopCount = identifierList.count then endInnerLoop := TRUE;
+	end;	// while endInnerLoop = FALSE
+
+	if foundMatch = FALSE then begin
+		writeln('The variable or constant specified in the left side of conditional operator in condition "' + conditionString + '" could not be found.  Halting compilation.');
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    condition: ');  writeln(conditionString);
+		halt;
+	end;
+
+//	writeln('leftValueStr: ' + leftValueStr);
+
+
+
+	//
+	//	set value of compareOpStr
+	//
+
+
+	endInnerLoop := FALSE;
+	dumpStr := '';
+	compareOpStr := '';
+
+	while endInnerLoop = FALSE do begin
+		if midStr(conditionString,j,1) <> ' ' then dumpStr := dumpStr + midStr(conditionString,j,1);
+		if midStr(conditionString,j,1) = ' ' then endInnerLoop := TRUE;
+		j := j + 1;
+	end;
+
+	if IDfields_IDtype = '2' then begin
+		if dumpStr = '=' then compareOpStr := 'eq';
+		if dumpStr = '!=' then compareOpStr := 'ne';
+		if dumpStr = '>=' then compareOpStr := 'uge';
+		if dumpStr = '=<' then compareOpStr := 'ule';
+		if dumpStr = '>' then compareOpStr := 'ugt';
+		if dumpStr = '<' then compareOpStr := 'ult';
+
+		if (dumpStr = '>=') OR (dumpStr = '=<') OR (dumpStr = '>') OR (dumpStr = '<') then begin
+			writeln('The following comparison operators may not be used with the character type:  >=  =<  >  <');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    condition: ');  writeln(conditionString);
+			halt;
+		end;
+	end;
+
+	dumpStr := '';
+
+	if compareOpStr = '' then begin
+		writeln('The comparison operator found in condition "' + conditionString + '" must be one of the following:  =  !=  >=  =<  >  <');
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    condition: ');  writeln(conditionString);
+		halt;
+	end;
+
+//	writeln('compareOpStr: ' + compareOpStr);
+
+
+
+	//
+	//	set value of rightValueStr, then translate to LLVM
+	//
+
+	endInnerLoop := FALSE;
+	dumpStr := '';
+	rightValueStr := '';
+
+	while endInnerLoop = FALSE do begin
+		if midStr(conditionString,j,1) <> ' ' then dumpStr := dumpStr + midStr(conditionString,j,1);
+		if midStr(conditionString,j,1) = ' ' then endInnerLoop := TRUE;
+		j := j + 1;
+		if j > length(conditionString) then endInnerLoop := TRUE;
+	end;
+
+	rightValueStr := dumpStr;
+
+	count := 0;
+	foundMatch := FALSE;
+
+	while count < identifierList.count do begin
+
+		identifierList_extract(count);
+
+		if IDfields_IDname = dumpStr then begin
+			foundMatch := TRUE;
+			dumpStr := '@' + dumpStr;
+			count := identifierList.count;
+		end;
+
+		if IDfields_IDname = currentModule + '.' + dumpStr then begin
+			foundMatch := TRUE;
+			dumpStr := '@' + dumpStr;
+			count := identifierList.count;
+		end;
+
+		if IDfields_IDname = currentModule + '.' + currentSub + '.' + dumpStr then begin
+			foundMatch := TRUE;
+			dumpStr := '%' + dumpStr;
+			count := identifierList.count;
+		end;
+
+		count := count + 1;
+	end;
+
+
+	//
+	//	if the right-hand side of a conditional isn't a previously-defined identifier, then it should be a literal
+	//
+
+	isLiteral := FALSE;
+
+	if foundMatch = FALSE then begin
+
+		if leftStr(rightStr(rightValueStr,3),1) = '\' then begin
+
+			case rightValueStr[length(dumpStr)-1] of
+			  '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f': isLiteral := TRUE;
+				otherwise isLiteral := FALSE;
+			end;
+
+			case rightStr(rightValueStr,1) of
+'0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f': isLiteral := TRUE;
+				otherwise isLiteral := FALSE;
+			end;
+
+			if isLiteral = TRUE then valueRtype := 2;
+	
+		end;
+
+		if isLiteral = FALSE then begin
+		if leftStr(rightValueStr,1) = '\' then begin
+		if length(rightValueStr) = 2 then begin
+			case rightStr(rightValueStr,1) of
+			  't','n','f','r','e','\','`': isLiteral := TRUE;
+			end;
+
+			if isLiteral = TRUE then begin
+				valueRtype := 2;
+
+				if rightValueStr = '\t' then rightValueStr := '\09';
+				if rightValueStr = '\n' then rightValueStr := '\10';
+				if rightValueStr = '\f' then rightValueStr := '\12';
+				if rightValueStr = '\r' then rightValueStr := '\13';
+				if rightValueStr = '\e' then rightValueStr := '\27';
+				if rightValueStr = '\\' then rightValueStr := '\92';
+				if rightValueStr = '\`' then rightValueStr := '\96';
+			end;
+		end;
+		end;
+		end;	// if isLiteral = FALSE
+
+//		write('isLiteral: ');	writeln(isLiteral);
+//		write('rightValueStr: ');	writeln(rightValueStr);
+
+		if isLiteral = FALSE then begin
+		if (leftStr(rightValueStr,1) = '`') AND (rightStr(rightValueStr,1) = '`') then begin
+		if length(rightValueStr) = 3 then begin
+
+			j := 32;
+			while j < 92 do begin
+				if midStr(rightValueStr,2,1) = chr(j) then begin
+					isLiteral := TRUE;
+					rightValueStr := '\' + hexStr(j,2);
+					j := 92;
+				end;
+				j := j + 1;
+			end;
+
+			// character '\' not permitted as a quoted string
+
+			if isLiteral = FALSE then begin
+				j := 93;
+				while j < 96 do begin
+					if midStr(rightValueStr,2,1) = chr(j) then begin
+						isLiteral := TRUE;
+						rightValueStr := '\' + hexStr(j,2);
+						j := 97;
+					end;
+					j := j + 1;
+				end;
+	
+				// character '`' not permitted as a quoted string
+	
+				if isLiteral = FALSE then begin
+					j := 97;
+					while j < 127 do begin
+						if midStr(rightValueStr,2,1) = chr(j) then begin
+							isLiteral := TRUE;
+							rightValueStr := '\' + hexStr(j,2);
+							j := 127;
+						end;
+						j := j + 1;
+					end;
+				end;
+			end;
+
+			if isLiteral = TRUE then valueRtype := 2;
+
+		end;
+		end;
+		end;	// if isLiteral = FALSE
+
+
+
+		if isLiteral = FALSE then begin
+			writeln('Right-hand side of conditional operator not found, and doesn''t appear to be a character literal.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    condition: ');  writeln(conditionString);
+			write('    dumpStr: ');  writeln(dumpStr);
+			halt;
+		end;
+
+		if isLiteral = TRUE then begin
+
+			//
+			//	check whether leftValueStr has become a literal.  if it is, then the compiler will compare them
+			//	and simply assign the result.
+			//
+	
+			isLiteral := FALSE;
+
+			if leftStr(leftValueStr,1) = '\' then begin
+	
+				xlatePrimitive(2,leftValueStr);
+
+				if xLate_record.whichField = 2 then begin
+					isLiteral := TRUE;
+					valueLtype := 2;
+					leftValueStr := intToStr(xLate_record.int);
+					xLate_record.whichField := 0;
+				end;
+
+	
+			end;
+	
+			if isLiteral = FALSE then begin
+			if (leftStr(leftValueStr,1) = '`') AND (rightStr(leftValueStr,1) = '`') then begin
+			if length(leftValueStr) = 3 then begin
+
+				xlatePrimitive(2,leftValueStr);
+
+				if xLate_record.whichField = 2 then begin
+					isLiteral := TRUE;
+					valueLtype := 2;
+					leftValueStr := intToStr(xLate_record.int);
+					xLate_record.whichField := 0;
+				end;
+
+			end;
+			end;
+			end;
+
+			if isLiteral = TRUE then begin
+
+				if valueLtype <> valueRtype then begin
+					writeln('Found type mismatch between left and right sides of a conditional operator.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					halt;
+				end;
+
+				if leftValueStr <> rightValueStr then begin
+					tempVarNum := tempVarNum + 1;
+	
+					if compareOpStr = 'eq' then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,0');
+					if compareOpStr = 'ne' then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,1');
+
+					if (leftValueStr > rightValueStr) AND ((compareOpStr = 'uge') OR (compareOpStr = 'ugt')) then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,1');
+					if (leftValueStr > rightValueStr) AND ((compareOpStr <> 'uge') AND (compareOpStr <> 'ugt')) then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,0');
+
+					if (leftValueStr < rightValueStr) AND ((compareOpStr = 'ule') OR (compareOpStr = 'ult')) then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,1');
+					if (leftValueStr < rightValueStr) AND ((compareOpStr <> 'ule') AND (compareOpStr <> 'ult')) then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,0');
+
+
+					branch();
+
+				end;
+
+				if leftValueStr = rightValueStr then begin
+					tempVarNum := tempVarNum + 1;
+	
+					if (compareOpStr = 'eq') OR (compareOpStr = 'uge') OR (compareOpStr = 'ule') then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,1');
+
+					if (compareOpStr = 'ne') OR (compareOpStr = 'ugt') OR (compareOpStr = 'ult') then writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,0');
+
+
+					branch();
+				end;
+
+			end;	// if isLiteral = TRUE
+
+			//
+			//	if leftValueStr isn't a literal, then just write down a comparison string
+			//
+
+			if isLiteral = FALSE then begin
+	
+				rightValueStr := dumpStr;
+	
+
+				if valueLtype <> valueRtype then begin
+					writeln('Found type mismatch between left and right sides of a conditional operator.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					halt;
+				end;
+
+				if leftValueStr = rightValueStr then begin
+					tempVarNum := tempVarNum + 1;
+
+					writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,1');
+
+					branch();
+				end;
+	
+				if leftValueStr <> rightValueStr then begin
+
+					if rightValueStr <> '' then begin
+						tempVarNum := tempVarNum + 1;
+
+						write(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = icmp ' + compareOpStr + ' i8 ');
+						write(module_output,leftValueStr);
+						write(module_output,',');
+						expression_handler(2,rightValueStr);
+						writeln(module_output);
+
+						branch();
+					end;
+				end;
+
+			end;	// if isLiteral := FALSE	(left-hand)
+
+		end;	// if isLiteral = TRUE	(right-hand)
+
+	end;	// if foundMatch = FALSE
+
+	//
+	//	handle identifiers that were previously declared
+	//
+
+	if foundMatch = TRUE then begin
+
+		rightValueStr := dumpStr;
+
+		// handle function calls
+
+		if IDfields_IDtype = '1' then begin
+//			identifierType := 1;
+			if IDfields_fifthField = '2' then valueRtype := 2;
+
+			oneChar := intToStr(valueRtype);
+
+			if valueLtype <> valueRtype then begin
+				writeln('Found type mismatch between left and right sides of a conditional operator.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+//				write('    condition: ');  writeln(conditionString);
+				halt;
+			end;
+
+			tempVarNum := tempVarNum + 1;
+			write(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = icmp ' + compareOpStr + ' i8 ');
+			subr_call(dumpStr,oneChar);
+			writeln(module_output);
+
+			branch();
+		end;
+
+
+		// handle variables
+
+		if IDfields_IDtype = '2' then begin
+//			identifierType := 2;
+			if IDfields_IDtype = '2' then valueRtype := 2;
+
+			if IDfields_lastVal <> '' then rightValueStr := IDfields_lastVal;
+
+			if IDfields_lastVal = '' then begin
+				if IDfields_sixthField = '0' then rightValueStr := '%' + rightValueStr;
+				if IDfields_sixthField = '1' then rightValueStr := '@' + rightValueStr;
+			end;
+
+			if valueLtype <> valueRtype then begin
+				writeln('Found type mismatch between left and right sides of a conditional operator.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+//				write('    condition: ');  writeln(conditionString);
+				halt;
+			end;
+
+
+			if leftValueStr <> rightValueStr then begin
+				tempVarNum := tempVarNum + 1;
+				write(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = icmp ' + compareOpStr + ' i8 ');
+				expression_handler(valueLtype,leftValueStr);
+				write(module_output,',' + rightValueStr);
+
+				branch();
+			end;
+
+			if leftValueStr = rightValueStr then begin
+				tempVarNum := tempVarNum + 1;
+				writeln(module_output,chr(9) + '%$tmp$' + intToStr(tempVarNum) + ' = add i1 0,1');
+
+				branch();
+			end;
+
+		end;
+
+	end;	// if foundMatch = TRUE
+
+	i := i + 1;
+
+end;	// while i < lastEntryNum
+
+
+if operator_list.count > 0 then branch();
+
+
+// clear out cond_list
+
+i := 0;
+count := cond_list.count;
+
+while i < count do begin
+	cond_list.delete(0);
+	i := i + 1;
+end;
+
+
+
+numChunk := 0;
+
+
+if (lowercase(midStr(workingString,countLetters+1,1)) = 'i') AND (lowercase(midStr(workingString,countLetters+2,1)) = 'f') AND ((lowercase(midStr(workingString,countLetters+3,1)) = ' ') OR (lowercase(midStr(workingString,countLetters+1,1)) = chr(9))) then begin
+	writeln('If guards may not precede if statements on the same line.  Halting compilation.');
+	writeln('    offending file: ' + currentModuleFile);
+	write('    line number: ');  writeln(currentLineNumber);
+	write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+	halt;
+end;
+
+
+
+// clear out subst_list
+
+i := 0;
+count := operator_list.count;
+
+while i < count do begin
+	subst_list.delete(0);
+	i := i + 1;
+end;
+
+
+i := countLetters;
+dumpStr := '';
+count := length(workingString);
+
+while i <= count do begin
+
+	if (midStr(workingString,i,1) <> ' ') AND (midStr(workingString,i,1) <> chr(9)) then begin
+
+		if (midStr(workingString,i,1) <> '\') then dumpStr := dumpStr + midStr(workingString,i,1);
+
+		if (midStr(workingString,i,1) = '\') then begin
+			if i < length(workingString)-1 then begin
+				if (midStr(workingString,i+1,1) = '\') then i := length(workingString);
+				if (midStr(workingString,i+1,1) <> '\') then dumpStr := dumpStr + midStr(workingString,i,1);
+			end;
+	
+			if i = length(workingString)-1 then dumpStr := dumpStr + midStr(workingString,i,1);
+
+		end;
+
+	end;
+
+	i := i + 1;
+end;
+
+//
+//	found if-guard
+//
+
+if trim(dumpStr) <> '' then begin
+	ifGuardLine := currentLineNumber;
+	isIfGuard := TRUE;
+
+	if sentenceType = 9 then begin
+		writeln('Elseif lines may not contain other statements.  Halting compilation.');
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+		halt;
+	end;
+
+	if sentenceType = 10 then begin
+		writeln('Elseif lines may not contain other statements.  Halting compilation.');
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+		halt;
+	end;
+
+end;
+
+
+//
+//	found if-then statement
+//
+
+if trim(dumpStr) = '' then begin
+	sentenceType := 8;
+	countLetters := i;
+	isIfGuard := FALSE;
+end;
+
+
+
+conditionsProcessed := conditionsProcessed + 1;
+
+end;	// procedure if_handler ();
+
+<</if_handler>>
+
+
+We've called the branch procedure every time we've written a temporary variable.  Now let's define that procedure.
+
+Basically, the branch procedure processes each operator that uses temporary variables that have already been written, looking at statements that are grouped together first and then moving outward.
+
+<<branch>>
+
+//
+//	check operator_list for an operator referring to entries that are next to each other
+//	and that also refer to entries already processed.  if none are found, increase
+//	the distance.  keep going until we have no further operators to process
+//
+
+
+procedure branch ();
+
+var	lastEntryNum			:	integer;
+	operatorCount			:	integer;
+	firstCount				:	integer;
+	secondCount				:	integer;
+	branchable				:	integer;
+	numColons				:	integer;
+	count					:	integer;
+	numMatches				:	integer;
+	conditionDiff			:	integer;
+	j						:	integer;
+
+	leftIntStr				:	ANSIstring;
+	rightIntStr				:	ANSIstring;
+	compareStr				:	ANSIstring;
+	operatorStr				:	ANSIstring;
+	throwAwayStr			:	ANSIstring;
+	firstResultStr			:	ANSIstring;
+	secondResultStr			:	ANSIstring;
+
+begin
+
+conditionDiff := 1;
+numMatches := 0;
+lastEntryNum := operator_list.count;
+leftIntStr := '';
+rightIntStr := '';
+
+if operator_list.count = 0 then begin
+
+	ifOptionNum := ifOptionNum + 1;
+	writeln(module_output,chr(9) + 'br i1 %$tmp$' + intToStr(tempVarNum) + ', label %if_option$' + intToStr(ifOptionNum) + ', label %if_else$' + intToStr(ifElseNum));
+	writeln(module_output);
+	writeln(module_output,'if_option$' + intToStr(ifOptionNum) + ':');
+
+end;
+
+while conditionDiff <= lastEntryNum+1 do begin
+
+	operatorCount := 0;
+	numMatches := lastEntryNum;
+
+	while operatorCount < lastEntryNum do begin
+	
+		compareStr := operator_list.valueFromIndex[operatorCount];
+//		writeln('compareStr: ' + compareStr);
+	
+		j := 1;
+		firstCount := 0;
+		secondCount := 0;
+		branchable := 0;
+		numColons := 0;
+		dumpStr := '';
+		operatorStr := '';
+	
+		while j <= length(compareStr) do begin
+			if midStr(compareStr,j,1) <> ':' then dumpStr := dumpStr + midStr(compareStr,j,1);
+	
+			if midStr(compareStr,j,1) = ':' then begin
+				numColons := numColons + 1;
+	
+				if numColons = 1 then firstCount := strToInt(dumpStr);
+				if numColons = 2 then secondCount := strToInt(dumpStr);
+				if numColons = 3 then branchable := strToInt(dumpStr);
+	
+				dumpStr := '';
+			end;
+	
+			j := j + 1;
+		end;
+
+		if (secondCount-firstCount <> conditionDiff) OR (secondCount > tempVarNum) then numMatches := numMatches - 1;
+
+		if secondCount <= tempVarNum then begin
+		if secondCount-firstCount <= conditionDiff then begin
+
+			operatorStr := dumpStr;
+		
+			tempResultNum := tempResultNum + 1;
+
+
+			//
+			//	replace first and second counts with results
+			//
+
+
+			leftIntStr := '%$tmp$' + intToStr(firstCount);
+			rightIntStr := '%$tmp$' + intToStr(secondCount);
+
+			j := 0;
+			throwAwayStr := '';
+			dumpStr := '';
+
+			while j < subst_list.count do begin
+				dumpStr := subst_list[j];
+
+				count := 1;
+
+				while count <= length(dumpStr) do begin
+
+					if midStr(dumpStr,count,1) <> ' ' then throwAwayStr := throwAwayStr + midStr(dumpStr,count,1);
+	
+					if midStr(dumpStr,count,1) = ' ' then begin
+						if throwAwayStr <> leftIntStr then count := length(dumpStr);
+						throwAwayStr := '';
+					end;
+
+					count := count + 1;
+
+				end;
+
+				j := j + 1;
+
+				if throwAwayStr <> '' then begin
+					leftIntStr := throwAwayStr;
+					j := 0;
+				end;
+
+			end;
+
+			j := 0;
+			throwAwayStr := '';
+			dumpStr := '';
+
+			while j < subst_list.count do begin
+				dumpStr := subst_list[j];
+
+				count := 1;
+
+				while count <= length(dumpStr) do begin
+
+					if midStr(dumpStr,count,1) <> ' ' then throwAwayStr := throwAwayStr + midStr(dumpStr,count,1);
+	
+					if midStr(dumpStr,count,1) = ' ' then begin
+						if throwAwayStr <> rightIntStr then count := length(dumpStr);
+						throwAwayStr := '';
+					end;
+
+					count := count + 1;
+
+				end;
+
+				j := j + 1;
+
+				if throwAwayStr <> '' then begin
+					rightIntStr := throwAwayStr;
+					j := 0;
+				end;
+
+			end;
+
+			firstResultStr := leftIntStr;
+			secondResultStr := rightIntStr;
+
+			write(module_output,chr(9) + '%$res$' + intToStr(tempResultNum) + ' = ');
+
+			if operatorStr = 'or' then write(module_output,'or');
+			if operatorStr = 'and' then write(module_output,'and');
+			if operatorStr = 'xor' then write(module_output,'xor');
+
+			writeln(module_output,' i1 ' + firstResultStr + ',' + secondResultStr);
+			subst_list.add(secondResultStr + ' %$res$' + intToStr(tempResultNum));
+
+			if branchable = 1 then begin
+				writeln(module_output,chr(9) + 'br i1 %$res$' + intToStr(tempResultNum) + ', label %if_option$' + intToStr(ifOptionNum+1) + ', label %if_else$' + intToStr(ifElseNum));
+				ifOptionNum := ifOptionNum + 1;
+				writeln(module_output);
+				writeln(module_output,'if_option$' + intToStr(ifOptionNum) + ':');
+			end;
+
+
+			operator_list.delete(operatorCount);
+			lastEntryNum := operator_list.count;
+
+		end;	// if secondCount-firstCount = conditionDiff	
+		end;	// if secondCount <= tempVarNum
+
+		numMatches := numMatches - 1;	
+		operatorCount := operatorCount + 1;
+	
+	end;	// while operatorCount < lastEntryNum
+
+	if numMatches <= 0 then conditionDiff := conditionDiff + 1;
+	operatorCount := 0;
+
+
+end;	// while loop
+
+end;	// procedure branch
+
+<</branch>>
+
+
+
+
+Statements can appear in either a module or in the main program, and for that reason I'll use a procedure call to handle most of them.  What this procedure will do is determine what kind of statement we have to deal with, double-check that the current statement has the correct indentation (since indentation partially determines scope) and then handles the statement appropriately.  Expressions will be handled by calling the expression_handler function.
+
+<<statement_handler>>
+
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////			Procedure statement_handler			///////
+///////////////////////////////////////////////												///////
+
+procedure statement_handler ();
+
+var		loopCount					:	integer;
+		charPos						:	integer;
+		intSize						:	integer;
+		dollarsFound				:	integer;
+		nthListEntry				:	integer;
+		foundDupDecl				:	integer;
+		count						:	integer;
+		totalDollars				:	integer;
+		numColons					:	integer;
+		dumpStart					:	integer;
+		arrayLength					:	integer;
+		countValues					:	integer;
+
+		i							:	integer;
+		j							:	integer;
+
+		readOnlyProp				:	ANSIstring;
+		intName						:	ANSIstring;
+		calledModule				:	ANSIstring;
+		variableValue				:	ANSIstring;
+		constProp					:	ANSIstring;
+		testBrkValue				:	ANSIstring;
+//		args						:	ANSIstring;
+
+		foundDuplicateID			:	boolean;
+		endDollarLoop				:	boolean;
+		foundChar					:	boolean;
+		foundMatch					:	boolean;
+		skipBreak					:	boolean;
+		isString					:	boolean;
+		isArray						:	boolean;
+
+//		label							else1;
+
+begin
+<</statement_handler>>
+
+The first thing to do is to throw an error if tabCount doesn't equal properIndent.
+
+<<statement_handler>>
+
+
+if properIndent < tabCount then begin
+
+	if (sentenceType <> 12) then begin
+		writeln('Found statement indented too many levels.  Halting compilation.');
+		write('    tabCount: ');  writeln(tabCount);
+		write('    properIndent: ');  writeln(properIndent);
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+		halt;
+	end;
+
+end;
+
+<</statement_handler>>
+
+We need to throw an error if a function definition's return statement is followed by any other type of statement.
+
+<<statement_handler>>
+
+	if (sentenceType = 0) OR (sentenceType = 1) OR (sentenceType = 4) OR (sentenceType = 5) OR (sentenceType = 7) OR (sentenceType = 8) OR (sentenceType = 4) OR (sentenceType = 9) OR (sentenceType = 10) OR (sentenceType = 11) OR (sentenceType = 12) OR (sentenceType = 13) OR (sentenceType = 14) OR (sentenceType = 15) OR (sentenceType = 16) OR (sentenceType = 17) OR (sentenceType = 100) then begin
+		if returnCodeStr <> '' then begin
+		if tabCount > 0 then begin
+			writeln('A function''s return statement may not be followed by another statement.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+		end;
+	end;
+
+<</statement_handler>>
+
+Next, we need to throw an error if a tail call is followed by anything other than a return call.
+
+<<statement_handler>>
+
+	if wroteTail = TRUE then begin
+	if tabCount > 0 then begin
+	if (sentenceType = 1) OR (sentenceType = 4) OR (sentenceType = 5) OR (sentenceType = 7) OR (sentenceType = 8) OR (sentenceType = 4) OR (sentenceType = 9) OR (sentenceType = 10) OR (sentenceType = 11) OR (sentenceType = 12) OR (sentenceType = 13) OR (sentenceType = 14) OR (sentenceType = 15) OR (sentenceType = 16) OR (sentenceType = 17) OR (sentenceType = 100) then begin
+
+		if returnTypeNeeded = FALSE then begin	
+			writeln('A procedure tail call may not be followed by any other statement.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if returnTypeNeeded = TRUE then begin
+		if (sentenceType <> 1) then begin
+			writeln('A function tail call may only be followed by a return statement.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+		end;
+
+	end;
+	end;
+	end;
+
+<</statement_handler>>
+
+If tabCount is less than properIndent, then we'll need to call close_nesting.  We'll also call close_nesting right after an if_guard.
+
+<<statement_handler>>
+
+	if (tabCount < properIndent) then close_nesting();
+
+
+<</statement_handler>>
+
+Halt statements are pretty simple; they consist of the word "halt" and they end the program abruptly, regardless of how deeply nested they are.  They look like this in Straightjacket:
+
+	halt
+
+In the LLVM side, I'm calling a C function called exit().  Here's the declaration format for that function (which has to be declared as a global function):
+
+	declare void @exit(i32) noreturn nounwind
+
+Here's the way we call it from within a function:
+
+	call void @exit(i32 1) noreturn nounwind
+
+<<statement_handler>>
+	/////////////////////											///////
+	/////////////////////			Handle halt statements			///////
+	/////////////////////											///////
+
+	if sentenceType = 14 then begin
+
+		close(module_output);
+		append(module_output);
+		writeln(module_output,chr(9) + 'call void @exit(i32 1) noreturn nounwind');
+
+	end;
+
+<</statement_handler>>
+
+Straightjacket requires return statements at the end of every function body (even recursive functions).  Here's what they look like in Straightjacket:
+
+	return someVariable
+
+When translated into LLVM, here's what it looks like:
+
+	ret i8 %someVariable
+
+We'll also need to populate string returnCodeStr for error checking purposes.
+
+<<statement_handler>>
+	/////////////////////											///////
+	/////////////////////			Handle return statements		///////
+	/////////////////////											///////
+
+	if sentenceType = 1 then begin
+
+		if tabCount <> 1 then begin
+			writeln('Return statements must be indented.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if currentSub = '' then begin
+			writeln('Return statements must follow function definitions.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if secondChunk = '' then begin
+			writeln('Found a return statement without a return value.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if returnTypeNeeded = FALSE then begin
+			writeln('Return statements are not permitted within procedures.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if secondChunk <> '' then begin
+			returnCodeStr := secondChunk;
+
+			if tabCount < properIndent then begin
+				close_nesting();
+				ifGuardLine := 0;
+			end;
+
+			write(module_output,chr(9));
+			writeln(module_output,'br label %exit');
+			writeln(module_output);
+			writeln(module_output,'exit:');
+			write(module_output,chr(9) + 'ret i8 ');
+
+			expression_handler(1,secondChunk);
+			writeln(module_output);
+			returnTypeUsed := TRUE;
+		end;
+
+		close(module_output);
+		append(module_output);
+
+	end;	// if sentenceType = 1
+
+
+<</statement_handler>>
+
+Let's look at loop statements next.  We'll need to increment the properIndent variable and then write some LLVM code.  Because loops can be nested, we need to break up the current subroutine into multiple basic blocks, with branch statements linking them together.  When dealing with drastically different indentation changes, we also need to generate the proper blocks to handle break statements, and we need to link those blocks together with later blocks.
+
+
+- when a loop statement is found, add an entry to tstringlist containing the current value of tabcount, and create a new loopBlock.  the name of that block will be loop$n, where n is the nth entry in the tstringlist.  also increment properIndent and update a variable containing the current loop block number.
+
+properIndent	integer
+break_list		TStringList
+bodyString		string
+
+<<statement_handler>>
+
+	/////////////////////									///////
+	/////////////////////			Handle loops			///////
+	/////////////////////									///////
+
+	if sentenceType = 11 then begin
+
+		inAloop := TRUE;
+		control_list.add('loop');
+		isAnIfstatement := FALSE;
+		currentBlockNum := currentBlockNum + 1;
+		properIndent := tabCount + 1;
+		loop_list.add('11:' + intToStr(tabCount) + ':' + intToStr(currentBlockNum));
+		write(module_output,chr(9));
+		writeln(module_output,'br label %loop$' + intToStr(currentBlockNum));
+		writeln(module_output);
+		writeln(module_output,'loop$' + intToStr(currentBlockNum) + ':');
+
+	end;	// if sentenceType = 11
+
+<</statement_handler>>
+
+Properly adjust the properIndent variable when dealing with if-then, elseif and else statements.
+
+<<statement_handler>>
+
+	/////////////////////												///////
+	/////////////////////			Handle if-then statements			///////
+	/////////////////////												///////
+
+	if (sentenceType = 8) OR (sentenceType = 9) OR (sentenceType = 10) then properIndent := tabCount + 1;
+
+<</statement_handler>>
+
+At this point, we're going to need to define a special procedure to close out our loops.  Basically, whenever tabCount is less than properIndent, we should close out the current block and move to a new one.
+
+- when tabCount drops below properIndent, start linking blocks together
+
+	- look at the highest block in the tstringlist.  if its tabCount is equal to or greater than the current tabCount, then link it to itself.  then delete the entry.
+	- look at the next-highest block in the tstringList.  if its tabCount is equal to or greater than the current tabCount, then create a new block, increment the current block number and link it to the next-highest block in the tstringList.
+	- continue until there are no more entries in tstringlist, or until we reach a tstringlist entry with a tabcount less than the current tabcount.
+
+<<close_nesting>>
+
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////			Close Nested Structures				///////
+///////////////////////////////////////////////												///////
+
+
+procedure close_nesting ();
+
+var		i					:	integer;
+		j					:	integer;
+		count				:	integer;
+		numColons			:	integer;
+
+		usedBreakCode		:	boolean;
+
+		tempStr				:	ANSIstring;
+		blockNumStr			:	ANSIstring;
+		numTabStr			:	ANSIstring;
+		testBreakStr		:	ANSIstring;
+		blockBNumStr		:	ANSIstring;
+		tempBreakStr		:	ANSIstring;
+		typeNumStr			:	ANSIstring;
+
+begin
+
+
+
+
+//
+//	for each block in loop_list, write a block that finishes an existing loop
+//
+
+
+i := loop_list.count;
+
+while i > 0 do begin
+
+	j := 1;
+	tempStr := '';
+	numTabStr := '';
+	dumpStr := loop_list.valueFromIndex[i-1];
+
+	numColons := 0;
+
+	while j <= length(dumpStr) do begin
+		if midStr(dumpStr,j,1) <> ':' then tempStr := tempStr + midStr(dumpStr,j,1);
+		if midStr(dumpStr,j,1) = ':' then begin
+			numColons := numColons + 1;
+
+			if numColons = 1 then begin
+				typeNumStr := tempStr;
+				tempStr := '';
+			end;
+
+			if numColons = 2 then begin
+				numTabStr := tempStr;
+				tempStr := '';
+			end;
+
+		end;
+		j := j + 1;
+	end;
+
+	blockNumStr := tempStr;
+
+
+	//
+	//	check break_list for currentBlockNum values
+	//	if found, skip the normal code and use this code
+	//	write blocks named break$n where n was the original
+	//	currentBlockNum value
+	//
+
+	usedBreakCode := FALSE;
+
+	writeln('break_list.count: ' + intToStr(break_list.count));
+
+	if break_list.count > 0 then begin
+		j := break_list.count-1;
+
+		while j >= 0 do begin
+
+			count := 1;
+			testBreakStr := break_list.valueFromIndex[j];
+			tempBreakStr := '';
+
+			while count <= length(testBreakStr) do begin
+				if midStr(testBreakStr,count,1) <> ':' then tempBreakStr := tempBreakStr + midStr(testBreakStr,count,1);
+				if midStr(testBreakStr,count,1) = ':' then begin
+					tempBreakStr := '';
+				end;
+				count := count + 1;
+			end;
+
+			blockBNumStr := tempBreakStr;
+
+//			writeln('blockBNumStr: ' + blockBNumStr);
+//			writeln('blockNumStr: ' + blockNumStr);
+
+			if blockBNumStr = blockNumStr then begin
+				currentBlockNum := currentBlockNum + 1;
+
+//				write(module_output,chr(9));
+//				writeln(module_output,'br label %break$' + blockNumStr);
+
+				writeln(module_output);
+				writeln(module_output,'break$' + blockNumStr + ':');
+				break_str := '';
+				usedBreakCode := TRUE;
+
+				break_list.delete(j);
+				j := 0;
+				loop_list.delete(i-1);
+				if (strToInt(numTabStr) = properIndent - 1) then begin
+					inAloop := FALSE;
+					control_list.delete(control_list.count-1);
+				end;
+
+			end;
+
+			j := j - 1;
+		end;
+
+	end;	// if break_list.count > 0
+
+
+	//
+	//	close if-then statements
+	//
+
+	if typeNumStr = '8' then begin
+	if strToInt(numTabStr) >= tabCount then begin
+		
+		write(module_output,chr(9));
+		writeln(module_output,'br label %if_else$' + blockNumStr);
+		writeln(module_output);
+		writeln(module_output,'if_else$' + blockNumStr + ':');
+		loop_list.delete(i-1);
+
+		if cond_list.count > 0 then cond_list.delete(cond_list.count-1);
+		if else_list.count > 0 then else_list.delete(else_list.count-1);
+
+		isAnIfStatement := FALSE;
+
+	end;	// if strToInt(numTabStr) >= tabCount
+	end;	// if typeNumStr = '8'
+
+
+	//
+	//	close loops
+	//
+
+	if typeNumStr = '11' then begin
+
+		if strToInt(numTabStr) >= tabCount then begin
+			
+
+
+			if usedBreakCode = FALSE then begin
+				write(module_output,chr(9));
+				writeln(module_output,'br label %loop$' + blockNumStr);
+				writeln(module_output);
+				loop_list.delete(i-1);
+				currentBlockNum := currentBlockNum + 1;
+				writeln(module_output,'loop$' + intToStr(currentBlockNum) + ':');
+				if (strToInt(numTabStr) = properIndent - 1) then begin
+					inAloop := FALSE;
+					control_list.delete(control_list.count-1);
+				end;
+			end;
+
+		end;	// if strToInt(numTabStr) >= tabCount
+
+	end;	// if typeNumStr = '11'
+
+	if strToInt(numTabStr) <= tabCount then i := 0;
+
+	i := i - 1;
+
+end;	// while i >= 0
+
+if tabCount > 0 then properIndent := tabCount;
+
+if (control_list.count > 0) then control_list.delete(control_list.count - 1);
+
+if control_list.count > 0 then begin
+	if control_list.valueFromIndex[control_list.count - 1] = 'loop' then inAloop := TRUE;
+	if control_list.valueFromIndex[control_list.count - 1] = 'if' then isAnIfStatement := TRUE;
+end;
+
+end;	// procedure close_nesting
+
+
+
+<</close_nesting>>
+
+Now let's handle break statements.  In Straightjacket, a break statement will halt the progression of the loop in which it is embedded.  No loop statements that follow a break statement will be executed (unless that break statement is wrapped within a conditional branch that isn't followed).  A break statement looks like this:
+
+	break
+
+That's pretty simple.  The code for this in LLVM looks like this:
+
+	br label %break$n
+
+Here, n stands for the value of the currentBlockNum value.  To store this information for later use, we add that information to the break_list TStringList.
+
+
+<<statement_handler>>
+
+	/////////////////////												///////
+	/////////////////////			Handle break statements				///////
+	/////////////////////												///////
+
+	if sentenceType = 12 then begin
+
+//		write('inAloop: ');				writeln(inAloop);
+//		write('isAnIfStatement: ');		writeln(isAnIfStatement);
+
+		if inAloop = FALSE then begin
+			writeln('Found break statement outside of a loop.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if inAloop = TRUE then begin
+
+			if (isIfGuard = FALSE) AND (isAnIfStatement = FALSE) then begin
+				writeln('Break statements must be embedded within if-then statements.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+
+			i := loop_list.count;
+			writeln('loop_list.count: ' + intToStr(i));
+			numColons := 0;
+
+			while i > 0 do begin
+
+				dumpStr := loop_list.valueFromIndex[i-1];
+				writeln('loop_list.valueFromIndex[i-1]: ' + dumpStr);
+
+				testBrkValue := '';
+
+//				writeln('loop_list value: ' + dumpStr);
+
+				j := 1;
+				numColons := 0;
+
+				while j <= length(dumpStr) do begin
+
+					skipBreak := FALSE;
+
+					if midStr(dumpStr,j,1) <> ':' then testBrkValue := testBrkValue + midStr(dumpStr,j,1);
+
+					if midStr(dumpStr,j,1) = ':' then begin
+						numColons := numColons + 1;
+
+						if numColons = 1 then begin
+							if testBrkValue = '8' then j := length(dumpStr);
+							testBrkValue := '';
+							skipBreak := TRUE;
+						end;
+
+						if numColons = 2 then begin
+							if strToInt(testBrkValue) <> tabCount - 1 then j := length(dumpStr);
+							testBrkValue := '';
+//							writeln('testBrkValue: ' + testBrkValue);
+						end;
+
+					end;
+
+//					write('j: ');					writeln(j);
+//					write('length(dumpStr): ');		writeln(length(dumpStr));
+//					write('skipBreak: ');			writeln(skipBreak);
+//					write('break_str: ');			writeln(break_str);
+
+					if j = length(dumpStr) then begin
+						if skipBreak = FALSE then begin
+
+							if (break_str <> 'br label %break$' + testBrkValue) then begin
+								write(module_output,chr(9));
+								writeln(module_output,'br label %break$' + testBrkValue);
+								break_str := 'br label %break$' + testBrkValue;
+							end;
+
+							break_list.add(intToStr(tabCount) + ':' + testBrkValue);
+//							close_nesting();
+
+							j := length(dumpStr);
+							i := 0;
+							writeln('encountered break statement');
+						end;
+					end;
+
+					j := j + 1;
+
+				end;	// while j <= length(dumpStr)
+
+				i := i - 1;
+			end;
+
+			if tabCount = properIndent then begin
+				if ifGuardLine <> currentLineNumber then inAloop := FALSE;
+				properIndent := properIndent - 1;
+			end;
+
+		end;	// if inAloop = TRUE
+
+
+	end;	// if sentenceType = 12
+
+
+<</statement_handler>>
+
+For other types of statements, the first thing we need to do is to check each entry in identifierList and break it up into several variables.  We will then use these variables to check different types of statements.
+
+We'll use the same code to handle constants, which are really just variables with the read-only flag set to '1'.
+
+<<statement_handler>>
+
+	endSHLoop := FALSE;
+	foundDupDecl := 0;
+	foundMatch := FALSE;
+
+	/////////////////////													///////
+	/////////////////////			Begin variable declarations				///////
+	/////////////////////													///////
+
+	if (sentenceType = 5) OR (sentenceType = 15) then begin
+
+		if (inAloop = TRUE) OR (isAnIfstatement = TRUE) then begin
+			writeln('Variable declarations cannot be made within loops.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		readOnlyProp := '0';
+
+		if fourthChunk = 'char' then begin
+
+			privacyFlag := '0';
+
+			if (leftStr(secondChunk,1) = '$') OR (leftStr(secondChunk,1) = '~') then begin
+				privacyFlag := '1';	// variable exported
+				if leftStr(secondChunk,1) = '~' then readOnlyProp := '2';
+
+				if tabCount > 0 then begin
+					writeln('Found local variable beginning with the character "$", indicating that the variable should be exported to other modules.  This option can only be used on global variables.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+			end;
+
+			if identifierList.count = 0 then foundDupDecl := 0;
+
+		end;	// if pos('char',fourthChunk) > 0
+
+		constProp := '0';
+
+		if firstChunk = 'const' then begin
+			readOnlyProp := '2';
+			constProp := '1';
+		end;
+
+
+		//
+		//	only ascii characters are supported at this time
+		//
+
+		if fourthChunk <> 'char' then begin
+			writeln('Found unrecognized type name.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+
+
+	end;	// if sentenceType = 5
+
+
+	/////////////////////														///////
+	/////////////////////			Perform general statement work				///////
+	/////////////////////														///////
+
+	if identifierList.count > 0 then begin
+
+		loopCount := 0;
+		isProcedure := FALSE;
+		foundChar := FALSE;
+
+		if (leftStr(thirdChunk,1) = '`') and (rightStr(thirdChunk,1) = '`') then thirdChunk := midStr(thirdChunk,2,length(thirdChunk)-2);
+
+		/////////////////////															///////
+		/////////////////////		Check each entry in identifierList					///////
+		/////////////////////															///////
+
+		while endSHLoop = FALSE do begin
+
+			identifierList_extract(loopCount);
+<</statement_handler>>
+
+At this point, let's look at the procedure identifierList_extract().  This procedure pulls an entry from identifierList and breaks it up into several string variables.  Defining this code as a separate procedure allows us to call it several times.  Here's the code for the procedure:
+
+
+
+<<identifierList_extract>>
+
+///////////////////////////////////////////////														///////
+///////////////////////////////////////////////			Procedure identifierList_extract			///////
+///////////////////////////////////////////////														///////
+
+procedure identifierList_extract (count:integer);
+
+var		dumpFieldStr			:	ANSIstring;
+		extractedEntry			:	ANSIstring;
+
+		numColons				:	integer;
+		charCount				:	integer;
+		numPeriodsFound			:	integer;
+
+		foundDollar				:	boolean;
+
+begin
+
+if identifierList.count > 0 then begin
+	
+	extractedEntry := identifierList.valueFromIndex[count];
+
+	numColons := 0;
+	charCount := 1;
+	numPeriodsFound := 0;
+
+	foundDollar := FALSE;
+
+	testdollarString := '';
+
+	IDfields_IDtype				:= '';
+	IDfields_privacyFlag		:= '';
+	IDfields_thirdField			:= '';
+	IDfields_IDname				:= '';
+	IDfields_fifthField			:= '';
+	IDfields_sixthField			:= '';
+	IDfields_lastVal			:= '';
+
+	testdollarString			:= '';
+	identifierTestModuleName	:= '';
+	identifierProcName			:= '';
+	identifierTestIDName		:= '';
+	dumpFieldStr				:= '';
+
+	while charCount <= length(extractedEntry) do begin
+
+		if midStr(extractedEntry,charCount,1) = ':' then begin
+
+			numColons := numColons + 1;
+			if numColons = 1 then IDfields_IDtype := dumpFieldStr;
+			if numColons = 2 then IDfields_privacyFlag := dumpFieldStr;
+			if numColons = 3 then IDfields_thirdField := dumpFieldStr;
+			if numColons = 4 then IDfields_IDname := dumpFieldStr;
+			if numColons = 5 then IDfields_fifthField := dumpFieldStr;
+			if numColons = 6 then IDfields_sixthField := dumpFieldStr;
+			dumpFieldStr := '';
+		end;
+
+		if numColons <> 3 then begin
+			if midStr(extractedEntry,charCount,1) <> ':' then dumpFieldStr := dumpFieldStr + midStr(extractedEntry,charCount,1);
+		end;
+
+		if numColons = 3 then begin
+			if midStr(extractedEntry,charCount,1) = '$' then foundDollar := TRUE;
+
+			if foundDollar = FALSE then begin
+
+				if ansiLastChar(leftStr(extractedEntry,charCount)) = '.' then begin
+					numPeriodsFound := numPeriodsFound + 1;
+					if numPeriodsFound = 1 then identifierTestModuleName := dumpFieldStr;
+					if numPeriodsFound = 2 then identifierProcName := dumpFieldStr;
+				end;
+
+				if midStr(extractedEntry,charCount,1) <> ':' then begin
+					dumpFieldStr := dumpFieldStr + midStr(extractedEntry,charCount,1);
+
+					if (midStr(extractedEntry,charCount,1) <> '.') then begin
+						if numPeriodsFound = 1 then begin
+							identifierTestIDName := identifierTestIDName + midStr(extractedEntry,charCount,1);
+						end;
+					end;
+
+				end;
+
+			end;
+
+			if foundDollar = TRUE then begin
+				if midStr(extractedEntry,charCount,1) <> ':' then testdollarString := testdollarString + midStr(extractedEntry,charCount,1);
+			end;
+
+		end;
+
+		charCount := charCount + 1;
+
+	end;	// while charCount <= length(extractedEntry)
+
+	IDfields_lastVal := dumpFieldStr;
+
+	if IDfields_IDtype = '0' then identifierProcName := identifierTestIDName;
+
+end;	// if identifierList.count > 0
+
+end;	// procedure identifierList_extract ();
+
+<</identifierList_extract>>
+
+Now let's get back to the statement_handler procedure.
+
+<<statement_handler>>
+
+			if IDfields_IDtype = '0' then isProcedure := TRUE;
+
+			foundDuplicate := FALSE;
+
+			//
+			//	throw errors on prohibited variable operations from within functions
+			//
+
+			if sentenceType = 4 then begin
+			if IDfields_IDtype = '1' then begin
+
+				if ((IDfields_IDname = firstChunk) OR (IDfields_IDname = currentModule + '.' + firstChunk)) AND (IDfields_IDname <> currentModule + '.' + currentSub + '.' + firstChunk) then begin
+					writeln('Variables defined outside of the current function are out of scope.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+				if (IDfields_IDname = currentModule + '.' + currentSub) then begin
+				if pos(firstChunk,IDfields_lastVal) > 0 then begin
+					writeln('Assignments to arguments of a function from within that function are not permitted.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+				end;
+
+			end;
+			end;
+
+
+
+			//
+			//	check for duplicate entries
+			//
+
+			foundDuplicateID := FALSE;
+
+			if identifierTestModuleName = currentModule then begin
+
+				if secondChunk = identifierTestIDName then foundDuplicateID := TRUE;
+				if secondChunk = identifierProcName + '.' + identifierTestIDName then foundDuplicateID := TRUE;
+
+				if foundDuplicateID = TRUE then begin
+					writeln('Found duplicate identifier name.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+			end;
+<</statement_handler>>
+
+
+Here we take care of variable declarations.  In Straightjacket, variable declarations look like this:
+
+	var something is char `a`
+
+The keyword "var" marks a sentence as a variable declaration.  Unlike in Pascal, this keyword must be present with every variable declaration.  On the upside, variable declarations don't have to be grouped together.  The placeholder "something" stands for the name of the new variable.  The keyword "is" is just syntactic sugar to make the sentence easier to read, and the keyword "char" indicates that the variable is an 8-bit extended ascii character.  The initialization value of the variable ends the line, and is always required.
+
+The char type is 8 bits wide and corresponds to the extended ascii character type.
+
+
+<<statement_handler>>
+			/////////////////////												///////
+			/////////////////////			Test variable declarations			///////
+			/////////////////////												///////
+		
+			if sentenceType = 5 then begin
+
+				if IDfields_IDtype = '2' then begin
+					foundDupDecl := pos(secondChunk,identifierTestIDName);
+
+					if foundDupDecl > 0 then begin
+						writeln('Found duplicate identifier declaration.  Halting compilation.');
+						writeln('    offending file: ' + currentModuleFile);
+						write('    line number: ');  writeln(currentLineNumber);
+						write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+						halt;
+					end;
+
+				end;
+
+			end;	// if sentenceType = 5
+		
+	
+<</statement_handler>>
+
+Here we process procedure calls.  In Straightjacket, a call to a procedure located within the current module looks like this:
+
+	proc()
+
+Calling a procedure exported from another module and imported into the current module looks like this:
+
+	modulename.proc()
+
+In LLVM, procedure calls look like this:
+
+	call fastcc void @modulename.proc()
+
+Here, "void" tells LLVM that the function doesn't return a value (this will be true for all Straightjacket procedures).  The @ prefix marks an identifier as being global.  This works because my compiler makes all identifiers global, using modules to mangle the names to avoid collisions.  
+
+Please note that this has been done to make the compiler simpler, and that Straightjacket's scoping rules still should still be enforced before translation occurs.
+
+<<statement_handler>>
+
+			if sentenceType = 6 then begin
+				subr_call(firstChunk, secondChunk);	// procedure call
+				endSHLoop := TRUE;
+			end;
+
+<</statement_handler>>
+
+<<subr_call>>
+
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////			Subroutine Call-Handler				///////
+///////////////////////////////////////////////												///////
+
+
+procedure subr_call (var subr_name:ANSIstring; var subr_args:ANSIstring);
+
+
+var			calledModStr			:	ANSIstring;
+			testModStr				:	ANSIstring;
+
+			i						:	integer;
+			j						:	integer;
+
+			okayToCall				:	boolean;
+
+
+begin
+
+	
+//
+//	prohibit procedure calls from within functions
+//
+
+if sentenceType = 6 then begin
+if returnTypeNeeded = TRUE then begin
+	writeln('Functions may not call procedures.  Halting compilation.');
+	writeln('    offending file: ' + currentModuleFile);
+	write('    line number: ');  writeln(currentLineNumber);
+	write('    line chunks: ');  writeln(subr_name + ' ' + subr_args);
+	halt;
+end;
+end;
+
+
+//
+//	write out subroutine calls
+//
+
+if sentenceType <> 4 then write(module_output,chr(9));
+
+write(module_output,'call');
+
+i := 0;
+okayToCall := FALSE;
+
+while i < identifierList.count do begin
+
+	identifierList_extract(i);
+
+	//
+	//	need to make sure that the called function is in scope
+	//
+
+	if identifierTestModuleName = currentModule then begin
+
+		if identifierProcName = currentSub then calledSelf := TRUE;
+
+		if (sentenceType = 4) OR (sentenceType = 5) then begin
+			if IDfields_fifthField = '2' then write(module_output,' i8');
+		end;
+
+		if (sentenceType = 6) then write(module_output,' void');
+
+		write(module_output, ' @' + currentModule + '.' + subr_name + '(');
+
+		if (IDfields_IDname = currentModule + '.' + subr_name) then begin
+			okayToCall := TRUE;
+			i := identifierList.count;
+		end;
+
+	end;
+
+	if identifierTestModuleName <> currentModule then begin
+
+		j := 0;
+		calledModStr := '';
+
+		while j < length(subr_name) do begin
+
+			if midStr(subr_name,j,1) <> '.' then calledModStr := calledModStr + subr_name;
+
+			if midStr(subr_name,j,1) = '.' then j := length(subr_name);
+
+			j := j + 1;
+		end;
+
+
+		j := 0;
+
+		while j < modulePath.count do begin
+
+			dumpStr := modulePath.valueFromIndex[j];
+			testModStr := ';' + identifierTestModuleName + ';' + calledModStr;
+
+			if pos(testModStr,dumpStr) > -1 then begin
+				write(module_output,IDfields_fifthField + ' @' + currentModule + '.' + subr_name + '(');
+				okayToCall := TRUE;
+				j := modulePath.count;
+				i := identifierList.count;
+			end;
+
+			j := j + 1;
+		end;
+
+	end;	// if identifierTestModuleName <> currentModule
+
+	i := i + 1;
+
+end;	// while i < identifierList.count
+
+if okayToCall = FALSE then begin
+	writeln('Call to undefined function (or function out of scope).  Halting compilation.');
+	writeln('    offending file: ' + currentModuleFile);
+	write('    offending function: ');  writeln(subr_name + subr_args);
+	write('    line number: ');  writeln(currentLineNumber);
+	halt;
+end;
+
+//
+//	next, we need to write out the arguments
+//
+
+i := 2;
+dumpStr := '';
+
+while i < length(subr_args) do begin
+
+	if (midStr(subr_args,i,1) <> ',') AND (midStr(subr_args,i,1) <> ' ') AND (midStr(subr_args,i,1) <> chr(9)) then dumpStr := dumpStr + midStr(subr_args,i,1);
+
+	if midStr(subr_args,i,1) = ',' then begin
+		if IDfields_fifthField = '2' then write(module_output,'i8 ');
+		expression_handler(2,dumpStr);
+		write(module_output,',');
+		dumpStr := '';
+	end;
+
+	i := i + 1;
+end;
+
+if dumpStr <> '' then begin
+	write(module_output,'i8 ');
+	expression_handler(2,dumpStr);
+end;
+
+write(module_output,')');
+if sentenceType <> 4 then writeln(module_output);
+
+
+end;	// procedure subr_call
+
+<</subr_call>>
+
+
+
+<<statement_handler>>
+
+			loopCount := loopCount + 1;
+
+			if loopCount >= identifierList.count then endSHLoop := TRUE;
+
+		end;	// while endSHLoop = FALSE
+
+
+		if sentenceType = 6 then begin
+			if isProcedure = FALSE then begin
+				writeln('Found procedure call to an identifier that isn''t a procedure.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+		end;	// if sentenceType = 6
+
+	end;	// if identifierList.count > 0
+
+
+	/////////////////////													///////
+	/////////////////////			Finish variable declarations			///////
+	/////////////////////													///////
+
+	if (sentenceType = 5) AND (foundDupDecl = 0) then begin
+
+		loopCount := pos('`',fourthChunk) + 1;
+		variableValue := '';
+
+		if (inAloop = TRUE) OR (isAnIfstatement = TRUE) then begin
+			writeln('Variable declarations may not be made within loops or if-then statements.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		isArray := FALSE;
+
+		if (rightStr(secondChunk,1) <> ']') AND (fifthChunk = 'array') then begin
+			writeln('Found array variable with a name that doesn''t end in a length enclosed in square brackets.  Here''s an example of a properly written array variable name:  array[5]');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if (rightStr(secondChunk,1) = ']') then begin
+
+			i := length(secondChunk)-1;
+			dumpStart := 0;
+
+			while i > 0 do begin
+	
+				if (midStr(secondChunk,i,1) = '[') then begin
+					isArray := TRUE;
+					dumpStart := i;
+					i := 0;
+				end;
+
+				i := i - 1;
+	
+			end;
+
+			i := dumpStart+1;
+			dumpStr := '';
+
+			while i < length(secondChunk) do begin
+
+				case midStr(secondChunk,i,1) of
+					'0','1','2','3','4','5','6','7','8','9'	:	dumpStr := dumpStr + midStr(secondChunk,i,1);
+					else isArray := FALSE;
+				end;
+
+				if isArray = FALSE then begin
+					writeln('Array indices may only contain decimal numbers.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+//				dumpStr := dumpStr + midStr(secondChunk,i,1);
+				i := i + 1;
+			end;
+
+			if (isArray = TRUE) AND (fifthChunk <> 'array') then isArray := FALSE;
+
+			if isArray = FALSE then begin
+				writeln('Found variable name that ends in a right bracket, but which doesn''t contain a left bracket.  Variable names may end in right brackets only if those right brackets are preceded by left brackets.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+
+		end;	// if (rightStr(secondChunk,1) = ']')
+
+		if isArray = FALSE then begin
+	
+
+			writeln('found declaration "' + secondChunk + '" of type "' + fourthChunk + '".');
+	
+			//
+			// extract the initialization value (if present)
+			//
+	
+			if leftStr(fifthChunk,1) = '\' then variableValue := fifthChunk;
+			if (leftStr(fifthChunk,1) = '`') AND (rightStr(fifthChunk,1) = '`') then variableValue := midStr(fifthChunk,2,1);
+	
+	//		writeln('fifthChunk: ' + fifthChunk);
+	
+			//
+			// update identifierList, remembering to account for significant whitespace
+			// also handle export prefixes properly
+			//
+	
+			if (leftStr(secondChunk,1) <> '$') AND (leftStr(secondChunk,1) <> '~') then begin
+				if tabCount = 0 then dumpStr := '2:' + privacyFlag + ':' + readOnlyProp + ':' + currentModule + '.' + secondChunk + ':' + constProp + ':1:' + variableValue;
+				if tabCount > 0 then dumpStr := '2:' + privacyFlag + ':' + readOnlyProp + ':' + currentModule + '.' + currentSub + '.' + secondChunk + ':' + constProp + ':0:' + variableValue;
+			end;
+	
+			if (leftStr(secondChunk,1) = '$') OR (leftStr(secondChunk,1) = '~') then begin
+				if tabCount = 0 then dumpStr := '2:' + privacyFlag + ':' + readOnlyProp + ':' + currentModule + '.' + rightStr(secondChunk,length(secondChunk)-1) + ':' + constProp + ':1:' + variableValue;
+			end;
+	
+			if sixthChunk = '' then identifierList.add(dumpStr);
+	
+			if pos('char',fourthChunk) > 0 then intSize := 8;
+
+			if sixthChunk = '' then begin
+
+				if variableValue = '' then begin
+		
+					writeln('Found uninitialized global variable.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+		
+				end;
+		
+			end;	// if sixthChunk = ''
+
+
+			//
+			// write global variables
+			//
+	
+			if tabCount = 0 then begin
+	
+				if currentSub <> '' then begin
+	
+					if returnTypeNeeded = FALSE then writeln(module_output,chr(9) + 'ret void');
+	
+					if (returnTypeNeeded = TRUE) AND (returnTypeUsed = FALSE) then begin
+						writeln('Function "' + currentSub + '" ended without a return statement.  Halting compilation.');
+						writeln('    offending file: ' + currentModuleFile);
+						write('    line number: ');  writeln(currentLineNumber);
+						write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+						halt;
+					end;
+	
+					writeln(module_output,'}');
+					writeln(module_output,'');	
+					currentSub := '';
+					finishedSubr := TRUE;
+				end;
+	
+				if (leftStr(secondChunk,1) <> '$') AND (leftStr(secondChunk,1) <> '~') then write(module_output, '@' + currentModule + '.' + secondChunk + ' = ');
+	
+				if (leftStr(secondChunk,1) = '$') OR (leftStr(secondChunk,1) = '~') then write(module_output, '@' + currentModule + '.' + rightStr(secondChunk,length(secondChunk)-1) + ' = ');
+	
+				if sixthChunk = '' then begin
+					write(module_output,'global i');
+	
+					write(module_output, intSize);
+					write(module_output, ' ');
+					fourthChunk := variableValue;		// setting the value that the expression handler will look at
+					expression_handler(2,fourthChunk);
+					writeln(module_output);
+					writeln(module_output);
+				end;
+	
+			end;	// if tabCount = 0
+	
+	
+			//
+			// write local variables
+			//
+	
+			if tabCount > 0 then begin
+	
+				if variableValue <> '' then begin
+	
+					count := 0;
+					while count < tabCount do begin
+						count := count + 1;
+					end;
+	
+					write(module_output,chr(9));
+	
+					if (leftStr(secondChunk,1) <> '$') AND (leftStr(secondChunk,1) <> '~') then write(module_output, '%' + secondChunk + ' = ');
+					if (leftStr(secondChunk,1) = '$') OR (leftStr(secondChunk,1) = '~') then write(module_output, '@' + currentModule + '.' + rightStr(secondChunk,length(secondChunk)-1) + ' = ');
+	
+					if sixthChunk = '' then begin
+						write(module_output,'add i');
+	
+						write(module_output, intSize);
+						write(module_output, ' 0,');
+						fourthChunk := variableValue;		// setting the value that the expression handler will look at
+						expression_handler(2,fourthChunk);
+						writeln(module_output,'');
+					end;
+	
+				end;	// if variableValue <> ''
+	
+	
+	
+			end;	// if tabCount > 0
+	
+	
+			//
+			//	allow function returns in variable and constant definitions
+			//
+	
+			if sixthChunk <> '' then begin
+				if (leftStr(sixthChunk,1) = '(') AND (rightStr(sixthChunk,1) = ')') then begin
+					subr_call(fifthChunk,sixthChunk);
+					writeln(module_output);
+					writeln(module_output);
+				end;
+			end;
+
+		end;	// if isArray = FALSE
+<</statement_handler>>
+
+Now that we've handled scalars, let's handle arrays.  For this version of the Straightjacket, only fixed-length character arrays will be supported.
+
+In Straightjacket, a fixed-length character array definition looks like this:
+
+	var something[5] is char array `12345`
+
+The square brackets enclose the length of the array.  The first type name that follows "is" defines the scalar type contained by the array's elements.  The last item is a quoted string, which appears as a special syntax only allowed for character arrays.  An alternative syntax is to use a bracketed list of the initialization values, as shown below.
+
+	var something[5] is char array [`1` `2` `3` `4` `5`]
+
+Note that the reverse quotes are used only for character literals; for other scalar types they are not used.
+
+Arrays can also be zero-initialized with a special shorthand.  Here's what it looks like:
+
+	var something[5] is char array []
+
+Please note that the array entries will be zero-valued, which for extended ascii means the null character, not the "0" character.
+
+The LLVM versions look quite different.  Here's what a declared global array looks like in LLVM:
+
+	@something = global {i64, [5 x i8]} {i64 4, [5 x i8] [ i8 49, i8 50, i8 51, i8 52, i8 0 ]}
+
+The curly braces define a record, while square braces define a C-style array (i.e. with no length delimiter).  The first field contains an integer defining the number of characters in the array.  The second field contains an array, with a length equal to the number of characters in the array, plus one extra character for a null terminator.
+
+The local array looks even more different:
+
+	%something = alloca {i8, [5 x i8]}
+
+	store {i8, [5 x i8]} {i8 4, [5 x i8] [ i8 65, i8 255, i8 51, i8 175, i8 0 ]}, {i8, [5 x i8]}* %something
+
+The first line allocates a record containing two fields; the first field describes the length of the array, and the second field defines the length of the array.  The second line fills the record we've just created.
+
+<<statement_handler>>
+
+		//
+		//	handle array declarations
+		//
+
+
+		if isArray = TRUE then begin
+
+			if fourthChunk = 'char' then begin
+
+				writeln('found array declaration "' + secondChunk + '" of type "' + fourthChunk + ' ".');
+
+				arrayLength := strToInt(dumpStr)+1;		// add an extra element for the null terminator
+
+				//
+				//	static array lengths may not be less than one
+				//
+
+				if arrayLength < 2 then begin	// account for the extra element
+					writeln('Static arrays must be at least one character in length.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+
+				//
+				//	handle global array assignments
+				//
+
+				if tabCount = 0 then begin
+					write(module_output,'@' + midStr(secondChunk,1,dumpStart-1) + ' = global {i64, [' + intToStr(arrayLength) + ' x i8]} {i64 ' + intToStr(arrayLength) + ', [' + intToStr(arrayLength) + ' x i8] [ ');
+
+
+					// add item to identifierList
+
+					dumpStr := '2.6:';
+					if (leftStr(secondChunk,1) = '$') OR (leftStr(secondChunk,1) = '~') then dumpStr := dumpStr + '0:';
+					if (leftStr(secondChunk,1) <> '$') AND (leftStr(secondChunk,1) <> '~') then dumpStr := dumpStr + '1:';
+					if (firstChunk = 'var') AND (leftStr(secondChunk,1) <> '~') then dumpStr := dumpStr + '0:';
+					if (firstChunk = 'const') OR (leftStr(secondChunk,1) = '~') then dumpStr := dumpStr + '1:';
+					dumpStr := dumpStr + currentModule + '.' + currentSub + '.' + secondChunk + ':';
+					if (firstChunk = 'var') then dumpStr := dumpStr + '0:';
+					if (firstChunk = 'const') then dumpStr := dumpStr + '1:';
+					dumpStr := dumpStr + '1:' + sixthChunk;
+
+					identifierList.add(dumpStr);
+					dumpStr := '';
+
+//					<identifier type>:<privacy flag>:<read-only property>:<identifier path.name>:<constant property>:<global flag>:<last value> 
+				end;
+
+
+
+
+				//
+				//	handle local array assignments of length <= 256 bytes
+				//
+
+				if (tabCount > 0) AND (arrayLength <= 257) then begin
+					writeln(module_output,chr(9) + '%' + midStr(secondChunk,1,dumpStart-1) + ' = alloca {i8, [' + intToStr(arrayLength) + ' x i8]}');
+					write(module_output,chr(9) + 'store {i8, [' + intToStr(arrayLength) + ' x i8]} {i8 ' + intToStr(arrayLength-1) + ', [' + intToStr(arrayLength) + ' x i8] [ ');
+
+					// add item to identifierList
+
+					dumpStr := '2.5:1:0:';
+					dumpStr := dumpStr + currentModule + '.' + currentSub + '.' + secondChunk + ':';
+					if (firstChunk = 'var') then dumpStr := dumpStr + '0:';
+					if (firstChunk = 'const') then dumpStr := dumpStr + '1:';
+					dumpStr := dumpStr + '1:' + sixthChunk;
+
+					identifierList.add(dumpStr);
+					dumpStr := '';
+
+//					<identifier type>:<privacy flag>:<read-only property>:<identifier path.name>:<constant property>:<global flag>:<last value> 
+				end;
+
+
+				//
+				//	handle local array assignments of length > 256 bytes
+				//
+
+				if (tabCount > 0) AND (arrayLength > 257) then begin
+
+					close(module_output);
+					assign(module_output,'C:\Users\meterwin\Desktop\source code\working\head.ll');
+					
+					if fileExists('C:\Users\meterwin\Desktop\source code\working\head.ll') = TRUE then append(module_output);
+
+					if fileExists('C:\Users\meterwin\Desktop\source code\working\head.ll') = FALSE then rewrite(module_output);
+
+					write(module_output,'@' + currentSub + '.' + midStr(secondChunk,1,dumpStart-1) + ' = global {i64, [' + intToStr(arrayLength) + ' x i8]} {i64 ' + intToStr(arrayLength-1) + ', [' + intToStr(arrayLength) + ' x i8] [ ');
+
+
+					// add item to identifierList
+
+					dumpStr := '2.6:0:';
+					if (firstChunk = 'var') then dumpStr := dumpStr + '0:';
+					if (firstChunk = 'const') then dumpStr := dumpStr + '1:';
+					dumpStr := dumpStr + currentModule + '.' + currentSub + '.' + secondChunk + ':';
+					if (firstChunk = 'var') then dumpStr := dumpStr + '0:';
+					if (firstChunk = 'const') then dumpStr := dumpStr + '1:';
+					dumpStr := dumpStr + '0:' + sixthChunk;
+
+					identifierList.add(dumpStr);
+					dumpStr := '';
+
+//					<identifier type>:<privacy flag>:<read-only property>:<identifier path.name>:<constant property>:<global flag>:<last value> 
+
+				end;
+
+
+				//
+				//	handle quoted strings as initialization values
+				//
+
+				if (leftStr(sixthChunk,1) = '`') AND (rightStr(sixthChunk,1) = '`') then begin
+
+					i := 2;
+					countValues := 0;
+
+					while i < length(sixthChunk) do begin
+						write(module_output,'i8 ');
+						countValues := countValues + 1;
+
+//						if midStr(sixthChunk,i,1) <> '\' then expression_handler(2,midStr(sixthChunk,i,1));
+
+						if midStr(sixthChunk,i,1) <> '\' then begin
+							xlatePrimitive(2,midStr(sixthChunk,i,1));
+							write(module_output,intToStr(xLate_record.int));
+							xLate_record.whichField := 0;
+						end;
+
+						//
+						//	handle switches
+						//
+
+						if midStr(sixthChunk,i,1) = '\' then begin
+
+							case rightStr(sixthChunk,i+1) of
+								't', 'n', 'f', 'r', 'e', '\', '`':	xlatePrimitive(2,midStr(sixthChunk,i,2));
+								else xlatePrimitive(2,midStr(sixthChunk,i,3));
+							end;
+
+							case rightStr(sixthChunk,i+1) of
+								't', 'n', 'f', 'r', 'e', '\', '`':	i := i + 1;
+								else i := i + 2;
+							end;
+
+							if xLate_record.whichField = 2 then begin
+								write(module_output,intToStr(xLate_record.int));
+								xLate_record.whichField := 0;
+							end;
+
+						end;
+
+						if i < length(sixthChunk) - 1 then write(module_output,', ');
+						i := i + 1;
+
+					end;	// while i < length(sixthChunk)
+
+				end;	// if (leftStr(sixthChunk,1) = '`') AND (rightStr(sixthChunk,1) = '`')
+
+
+				//
+				//	handle simple lists as initialization values
+				//
+
+				if (leftStr(sixthChunk,1) = '[') AND (rightStr(sixthChunk,1) = ']') then begin
+
+					i := 2;
+					isString := FALSE;
+					dumpStr := '';
+					countValues := 0;
+
+					//
+					//	zero-initialize arrays with empty initialization strings
+					//
+
+					if sixthChunk = '[]' then begin
+						j := 1;
+
+						while j < arrayLength do begin
+
+							write(module_output,'i8 0');
+							countValues := countValues + 1;
+
+							if (j < arrayLength-1) then write(module_output,', ');
+
+							j := j + 1;
+
+						end;	// while j <= intToStr(arrayLength)
+					end;
+
+					//
+					//	write out character values for non-empty initialization strings
+					//
+
+					while i < length(sixthChunk) do begin
+
+						if isString = TRUE then begin
+							dumpStr := dumpStr + midStr(sixthChunk,i,1);
+							if (midStr(sixthChunk,i,1) = '`') then begin
+								isString := FALSE;
+								if (i < length(sixthChunk) - 1) then i := i + 1;
+							end;
+						end;
+
+						if isString = FALSE then begin
+
+							if (midStr(sixthChunk,i,1) <> ' ') then begin
+								if (midStr(sixthChunk,i,1) = '`') AND (rightStr(dumpStr,1) <> '`') then dumpStr := dumpStr + midStr(sixthChunk,i,1);
+									// don't add duplicate grave accents
+								if (midStr(sixthChunk,i,1) <> '`') then dumpStr := dumpStr + midStr(sixthChunk,i,1);
+							end;
+
+							if (midStr(sixthChunk,i,1) = ' ') OR (i >= length(sixthChunk)-1) then begin
+
+								write(module_output,'i8 ');
+								if rightStr(dumpStr,1) <> ')' then begin
+//									expression_handler(2,dumpStr);
+									xlatePrimitive(2,dumpStr);
+									write(module_output,intToStr(xLate_record.int));
+									xLate_record.whichField := 0;
+									countValues := countValues + 1;
+								end;
+
+								if (i < length(sixthChunk) - 1) then begin
+									write(module_output,', ');
+									dumpStr := '';
+								end;
+
+								if rightStr(dumpStr,1) = ')' then begin
+									writeln('Function calls are not supported within array initialization declarations.  Halting compilation.');
+									writeln('    offending file: ' + currentModuleFile);
+									write('    line number: ');  writeln(currentLineNumber);
+									write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+									halt;
+								end;
+
+							end;	// if isString = FALSE
+
+							if (midStr(sixthChunk,i,1) = '`') then isString := TRUE;
+
+						end;
+
+						i := i + 1;
+
+
+					end;	// while i < length(sixthChunk)
+
+				end;	// if (leftStr(sixthChunk,1) = '[') AND (rightStr(sixthChunk,1) = ')')
+
+				write(module_output, ', i8 0 ]}');	// all character strings must be null-terminated
+				countValues := countValues + 1;
+
+
+				if countValues <> arrayLength then begin
+					writeln('The number of initialization values provided must match the array length.  Halting compilation.');
+					write('    countValues: ');  writeln(countValues);
+					write('    arrayLength: ');  writeln(arrayLength);
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+				if (tabCount > 0) AND (arrayLength <= 256) then write(module_output, ', {i8, [' + intToStr(arrayLength) + ' x i8]}* %' + midStr(secondChunk,1,dumpStart-1));
+
+				writeln(module_output);
+
+				close(module_output);
+				assign(module_output,'C:\Users\meterwin\Desktop\source code\working\imports.ll');
+				append(module_output);
+
+
+				if (leftStr(sixthChunk,1) = '[') AND (rightStr(sixthChunk,1) <> ']') then isArray := FALSE;
+				if (leftStr(sixthChunk,1) <> '[') AND (rightStr(sixthChunk,1) = ']') then isArray := FALSE;
+				if (leftStr(sixthChunk,1) = '`') AND (rightStr(sixthChunk,1) <> '`') then isArray := FALSE;
+				if (leftStr(sixthChunk,1) <> '`') AND (rightStr(sixthChunk,1) = '`') then isArray := FALSE;
+
+				if isArray = FALSE then begin
+					writeln('The initialization value of an array must either be a list or, if the array is a character-valued array, a quoted string.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+
+			end;	// if fourthChunk = 'char'
+
+			if fourthChunk <> 'char' then begin
+				writeln('Only the primitive type ''char'' is supported in this version of the Straightjacket compiler.  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+
+		end;
+
+	end;	// if (sentenceType = 5) AND (foundDupDecl > 0)
+
+
+<</statement_handler>>
+
+The purpose of the xlatePrimitive procedure is to translate high-level primitive types into numbers (either integers or floating-point numbers) that can be written to the output file.  Placing this code in a procedure allows us to call it reduce the number of times we have to translate primitive types.
+
+<<xlatePrimitive>>
+
+///////////////////////////////////////////////											///////
+///////////////////////////////////////////////			Procedure XlatePrimitive		///////
+///////////////////////////////////////////////											///////
+
+procedure xlatePrimitive (typeNum:integer; inputStr:ANSIstring);
+
+var		error			:	boolean;
+		foundMatch		:	boolean;
+
+		i				:	integer;
+		j				:	integer;
+
+begin
+
+error := FALSE;
+foundMatch := FALSE;
+
+if typeNum = 2 then begin
+
+	// handle switches
+
+	if leftStr(inputStr,1) = '\' then begin
+
+		// handle simple switches
+
+		if length(inputStr) = 2 then begin
+
+			case rightStr(inputStr,1) of
+				't':	xLate_record.int := 9;		// tab
+				'n':	xLate_record.int := 10;		// newline
+				'f':	xLate_record.int := 12;		// form feed
+				'r':	xLate_record.int := 13;		// return
+				'e':	xLate_record.int := 27;		// escape
+				'\':	xLate_record.int := 92;		// backslash
+				'`':	xLate_record.int := 96;		// grave accent
+				else error := TRUE;
+			end;
+
+			if error = FALSE then xLate_record.whichField := 2;
+
+			if error = TRUE then begin
+				writeln('Two-character switches must begin with a backslash, followed by one of these characters:  t (tab), n (newline), f (form feed), r (carriage return), e (escape), \ (backslash) or ` (grave accent, also called a reverse accent).  Halting compilation.');
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+
+		end;
+
+		// handle hexadecimal switches
+
+		if length(inputStr) = 3 then begin
+
+			i := 1;
+
+			while i <= 2 do begin
+
+				// checking for numbers
+
+				j := 48;
+				while j < 58 do begin
+					if midStr(inputStr,i+1,1) = chr(j) then begin
+						foundMatch := TRUE;
+						j := 58;
+					end;
+					j := j + 1;
+				end;
+
+				// checking for letters a-f
+
+				if foundMatch = FALSE then begin
+					j := 97;
+					while j < 103 do begin
+						if midStr(inputStr,i+1,1) = chr(j) then begin
+							foundMatch := TRUE;
+							j := 103;
+						end;
+						j := j + 1;
+					end;
+				end;
+
+				if foundMatch = TRUE then xLate_record.whichField := 2;
+
+				if foundMatch = FALSE then begin
+					writeln('Three-character switches must begin with a backslash, followed by a hexadecimal number.  Halting compilation.');
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+				i := i + 1;
+
+			end;
+
+			xLate_record.int := strToInt('x' + rightStr(inputStr,2));
+
+		end;
+
+	end;	// if leftStr(inputStr,1) = '\'
+
+
+	// handle quoted characters
+
+	if (leftStr(inputStr,1) = '`') AND (rightStr(inputStr,1) = '`') then begin
+
+		j := 32;
+		while j < 127 do begin
+			if midStr(inputStr,i+1,1) = chr(j) then begin
+				foundMatch := TRUE;
+				xLate_record.int := j;
+				j := 127;
+			end;
+			j := j + 1;
+		end;
+
+		if foundMatch = TRUE then xLate_record.whichField := 2;
+
+		if foundMatch = FALSE then begin
+			writeln('Quoted characters must printable ASCII characters.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+	end;	// (leftStr(inputStr,1) = '`') AND (rightStr(inputStr,1) = '`')
+
+
+	// handle malformed characters
+
+	if foundMatch = FALSE then begin
+		writeln('Found malformed character literal.  Halting compilation.');
+		writeln('    offending file: ' + currentModuleFile);
+		write('    line number: ');  writeln(currentLineNumber);
+		write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+		halt;
+	end;
+
+
+
+end;	// if typeNum = 2
+
+
+end;	// procedure xlatePrimitive
+
+<</xlatePrimitive>>
+
+
+<</statement_handler>>
+
+Here we handle variable assignments.  Earlier we checked to make sure the variable is of the right type and that it had already been declared.  Now we need to double-check that character literals are formatted correctly and that they're indented properly.  If everything looks good, we can call the expression handler to write an llvm integer to the output file.
+
+Here I'd like to say a word about static single assignment (SSA), which is required by llvm.  Whenever we assign a new value to a variable in straightjacket, we have create a new llvm variable that depends on the value of the previous variable.  To avoid collisions, I've decided to implement this using hashtags.  Basically, we add a dollar sign to the end of a variable name, and then append a number.  Whenever we give that variable a new value, we increment the final number and make that the new variable.  When we enter a procedure, function, branch or loop, we append another dollar sign and another number, and we start iterating that number.  When we leave a branch or a loop, we remove the last dollar sign and number.
+
+
+<<statement_handler>>
+	/////////////////////												///////
+	/////////////////////			Handle variable assignments			///////
+	/////////////////////												///////
+
+	foundMatch := FALSE;
+
+	if sentenceType = 4 then begin
+
+		i := 0;
+		while i < identifierList.count do begin
+
+			identifierList_extract(i);
+
+			if (IDfields_IDname = currentModule + '.' + currentSub + '.' + firstChunk) OR (IDfields_IDname = currentModule + '.' + firstChunk) OR (IDfields_IDname = firstChunk) then begin
+	
+				foundMatch := TRUE;
+
+				if IDfields_IDtype = '2' then foundChar := TRUE;
+				if IDfields_IDtype <> '2' then foundChar := FALSE;
+	
+				i := identifierList.count;
+				calledModule := identifierTestModuleName;
+
+
+				if (IDfields_thirdField = '2') then begin
+				if identifierTestModuleName <> currentModule then begin
+					writeln('You cannot change the value of a variable exported as a constant from another module.  Halting compilation.');
+		
+					writeln;
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+				end;
+
+				if (IDfields_fifthField = '1') then begin
+
+					writeln('You cannot change the value of a constant.  Halting compilation.');
+		
+					writeln;
+					writeln('    offending file: ' + currentModuleFile);
+					write('    line number: ');  writeln(currentLineNumber);
+					write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+					halt;
+				end;
+
+
+			end;
+	
+			if (tabCount = 0) then begin
+	
+				writeln('Statements enclosed within a procedure declaration, a function declaration, a conditional or a loop need to be indented.  Halting compilation.');
+	
+				writeln;
+				write('    tabCount: ');		writeln(tabCount);
+				write('    properIndent: ');	writeln(properIndent);
+	
+				writeln('    offending file: ' + currentModuleFile);
+				write('    line number: ');  writeln(currentLineNumber);
+				write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+				halt;
+			end;
+
+			i := i + 1;
+		end;
+
+
+		if (foundMatch = TRUE) AND (foundChar = FALSE) then begin
+			writeln('Variable found isn''t of type "char".  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if (foundMatch = FALSE) then begin
+			writeln('Variable "' + firstChunk + '" not defined before assignment.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if tabCount = 0 then begin
+			writeln('Variable assignments must be made within subroutines.  Halting compilation.');
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		if foundChar = TRUE then intSize := 8;	// the width of all char-type variables is 8 bits
+
+		count := 1;
+		while count <= tabCount do begin
+			count := count + 1;
+		end;
+
+		write(module_output,chr(9));
+	
+
+
+		//
+		// updating the variable name to account for SSA
+		//
+
+		dollarsFound := 0;
+		charPos := 1;
+
+		while charPos <= length(testdollarString) do begin
+			if midStr(testdollarString,charPos,1) = '$' then dollarsFound := dollarsFound + 1;
+			charPos := charPos + 1;
+		end;
+
+		totalDollars := dollarsFound;
+
+		intName := '';
+		dollarsFound := 0;
+		endDollarLoop := FALSE;
+		charPos := 1;
+
+		while endDollarLoop = FALSE do begin
+	
+			if dollarsFound < tabCount then begin
+				intName := intName + midStr(testdollarString,charPos,1);
+				if midStr(testdollarString,charPos,1) = '$' then dollarsFound := dollarsFound + 1;
+			end;
+	
+			if totalDollars > 0 then begin
+			if dollarsFound = totalDollars then begin
+	
+				intName := intName + intToStr(strToInt(rightStr(testdollarString,length(testdollarString)-charPos)) + 1);
+					// convert the remaining characters to an integer
+					// iterate that integer
+					// convert that integer to a string
+					// append that string to intName
+	
+				endDollarLoop := TRUE;
+			end;
+			end;
+	
+			charPos := charPos + 1;
+			if charPos > length(testdollarString) then endDollarLoop := TRUE;					
+	
+		end;
+	
+		if dollarsFound = 0 then intName := intName + '$1';
+
+
+		//
+		// throw error when trying to update constants
+		//
+
+		if IDfields_thirdField = '1' then begin
+			writeln('Found attempt to change the value of a constant.  Halting compilation.');
+
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		//
+		// throw error when trying to update identifiers exported as constants
+		//
+
+		if (IDfields_privacyFlag = '2') OR (IDfields_sixthField = '2') then begin
+			writeln('Found attempt to change the value of a variable exported as a constant.  Halting compilation.');
+
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+
+		//
+		// update identifierList with the new name
+		//
+	
+		dumpStr := '';
+
+		if calledModule <> '' then calledModule := calledModule + '.';
+		if identifierProcName <> '' then identifierProcName := identifierProcName + '.';
+	
+
+		dumpStr := IDfields_IDtype + ':' + IDfields_privacyFlag + ':' + IDfields_thirdField + ':' + IDfields_IDname + testdollarString + ':' + IDfields_fifthField + ':' + IDfields_sixthField + ':' + IDfields_lastVal;
+		nthListEntry := identifierList.indexOf(dumpStr);
+			write('    deleting this entry: ');	writeln(dumpStr);
+		identifierList.delete(nthListEntry);
+
+		dumpStr := IDfields_IDtype + ':' + IDfields_privacyFlag + ':' + IDfields_thirdField + ':' + IDfields_IDname + intName + ':' + IDfields_fifthField + ':' + IDfields_sixthField + ':' + thirdChunk;
+			write('    adding this entry: ');	writeln(dumpStr);
+		identifierList.add(dumpStr);
+
+
+
+		//
+		// write out global variables
+		//
+
+		if IDfields_sixthField = '1' then begin
+			write(module_output, 'store i');
+			write(module_output,intSize);
+			write(module_output,' ');
+
+			expression_handler(2,thirdChunk);
+
+			write(module_output, ', i');
+			write(module_output,intSize);
+			if pos('.',firstChunk) = 0 then writeln(module_output,'* @' + currentModule + '.' + firstChunk);
+			if pos('.',firstChunk) > 0 then writeln(module_output,'* @' + firstChunk);
+
+			if call_list.indexOf(currentModule + '.' + currentSub + ':' + currentModule + '.' + firstChunk) = -1 then call_list.add(currentModule + '.' + currentSub + ':' + currentModule + '.' + firstChunk);
+
+		end;
+
+		//
+		// write out local variables
+		//
+
+
+		if IDfields_sixthField = '0' then begin
+
+			write(module_output, '%' + firstChunk + intName + ' = ');
+
+			if fourthChunk = '' then begin
+				write(module_output,'add i');
+				write(module_output,intSize);
+				write(module_output,' 0,');
+				expression_handler(2,thirdChunk);
+			end;
+
+			if fourthChunk <> '' then subr_call(thirdChunk,fourthChunk);
+
+			writeln(module_output);
+		end;
+
+
+	end;	// if sentenceType = 4
+
+	if isIfGuard = TRUE then begin
+		close_nesting();
+		isIfGuard := FALSE;
+	end;
+
+end;	// program statement_handler
+<</statement_handler>>
+
+Now is probably a good time to look at the expression_handler() procedure.  This procedure takes the right-hand side of an assignment statement and translates it into LLVM code.  Because the only data type right now is type char, and because no expression operators are defined for this type, the expression_handler simply has to translate character literals into integers.
+
+
+<<expression_handler>>
+
+procedure expression_handler (varType:integer; expressionStr:ANSIstring);		// modify to accept the nth entry of expressionStr
+
+//var		minN			:	integer;
+//		maxN			:	integer;
+//		intLength		:	integer;
+//		charPos			:	integer;
+var		intValue		:	integer;
+		count			:	integer;
+		innerLoopCount	:	integer;
+		numColons		:	integer;
+		tryNum			:	integer;
+//		expressionInt	:	integer;
+//		n				:	integer;
+		i				:	integer;
+		j				:	integer;
+
+		testOldIDname	:	ANSIstring;
+		testOldValueStr	:	ANSIstring;
+		tryString		:	ANSIstring;
+		fillArgStr		:	ANSIstring;
+		expressionStr2	:	ANSIstring;
+
+//		endXvarAssLoop	:	boolean;
+//		charCheckLoop	:	boolean;
+//		legalChar		:	boolean;
+		endLoop			:	boolean;
+		endTries		:	boolean;
+		stopAppend		:	boolean;
+		writeValue		:	boolean;
+		foundRetVal		:	boolean;
+		isLiteral		:	boolean;
+
+begin
+
+expressionStr2 := expressionStr;
+
+if varType = 1 then begin		// handle return values
+
+	// need to verify that secondChunk is one of the parameters for the current subroutine
+
+	i := 0;
+	foundRetVal := FALSE;
+
+	while i < identifierList.count do begin
+
+		identifierList_extract(i);
+
+		if IDfields_IDtype = '2' then begin
+
+			if IDfields_IDname = currentModule + '.' + currentSub + '.' + secondChunk then begin
+				foundRetVal := TRUE;
+				i := identifierList.count;
+			end;
+
+
+
+			if returnTypeNeeded = FALSE then begin
+
+				if IDfields_IDname = currentModule + '.' + secondChunk then begin
+					foundRetVal := TRUE;
+					i := identifierList.count;
+				end;
+
+				if (IDfields_IDname = secondChunk) OR (IDfields_sixthField = '1') then begin
+				if IDfields_sixthField = '1' then begin
+					foundRetVal := TRUE;
+					i := identifierList.count;
+				end;
+				end;
+
+				if pos('.',secondChunk) > 0 then begin
+
+					j := 0;
+
+					while j < modulePath.count do begin
+						dumpStr := modulePath.valueFromIndex[j];
+						if pos('0;' + currentModule + ';' + identifierTestModuleName,dumpStr) > -1 then begin
+							foundRetVal := TRUE;
+							i := identifierList.count;
+							j := modulePath.count;
+						end;
+						j := j + 1;
+					end;
+
+				end;
+			end;
+
+		end;
+
+		i := i + 1;
+
+	end;
+
+	if foundRetVal = TRUE then begin
+		write(module_output,'%' + secondChunk + testdollarString);
+//		endXvarAssLoop := TRUE;
+		writeValue := FALSE;
+	end;
+
+	if foundRetVal = FALSE then varType := 2;
+
+end;
+
+
+if varType = 2 then begin
+
+	if (leftStr(expressionStr2,1) = '`') AND (rightStr(expressionStr2,1) = '`') then expressionStr2 := midStr(expressionStr2,2,1);
+
+	// if sentenceType = 4 then check identifierList for matches for thirdStr
+	// if match is found, then substitute the old value of the variable for expressionStr2
+
+	endTries := FALSE;
+	isLiteral := TRUE;
+
+	tryString := '';
+
+	tryNum := 1;
+
+	while endTries = FALSE do begin
+	
+		if tryNum = 1 then tryString := currentModule + '.' + currentSub + '.' + expressionStr2;
+		if tryNum = 2 then tryString := currentModule + '.' + expressionStr2;
+		if tryNum = 3 then tryString := expressionStr2;
+
+		count := 0;
+		fillArgStr := '';
+
+		while count < identifierList.count do begin
+
+			dumpStr := identifierList.valueFromIndex[count];		// writeln('    dumpStr: ' + dumpStr);
+
+			innerLoopCount := 1;
+			numColons := 0;
+			testOldIDname := '';
+			testOldValueStr := '';
+			endLoop := FALSE;
+			stopAppend := FALSE;
+
+			while endLoop = FALSE do begin
+
+				if rightStr(leftStr(dumpStr,innerLoopCount),1) = ':' then numColons := numColons + 1;
+
+				if rightStr(leftStr(dumpStr,innerLoopCount),1) = '$' then stopAppend := TRUE;
+
+				if (rightStr(leftStr(dumpStr,innerLoopCount),1) <> ':') AND (numColons = 3) AND (stopAppend = FALSE) then testOldIDname := testOldIDname + rightStr(leftStr(dumpStr,innerLoopCount),1);
+
+				if numColons = 4 then begin
+
+					if testOldIDname = tryString then begin		// found variable
+
+						if leftStr(rightStr(dumpStr,3),1) = '\' then expressionStr2 := rightStr(dumpStr,3);
+
+						if (leftStr(rightStr(dumpStr,2),1) = ':') AND (rightStr(dumpStr,1) <> ':') then begin
+						if sentenceType <> 1 then expressionStr2 := rightStr(dumpStr,1);
+						end;
+
+						count := identifierList.count;
+						fillArgStr := '';
+
+						if call_list.indexOf(currentModule + '.' + currentSub + ':' + tryString) = -1 then call_list.add(currentModule + '.' + currentSub + ':' + tryString);
+
+					end;	// if testOldIDname = tryString
+
+
+
+				end;	// if numColons = 4
+
+				if sentenceType = 4 then begin
+				if numColons = 5 then begin
+				if (leftStr(dumpStr,1) = '0') OR (leftStr(dumpStr,1) = '1') then begin
+					if (testOldIDname = currentModule + '.' + currentSub) AND (midStr(dumpStr,innerLoopCount,1) <> ' ') AND (midStr(dumpStr,innerLoopCount,1) <> chr(9)) AND (midStr(dumpStr,innerLoopCount,1) <> ',') AND (midStr(dumpStr,innerLoopCount,1) <> ':') then fillArgStr := fillArgStr + midStr(dumpStr,innerLoopCount,1);
+
+					if fillArgStr = 'char' then fillArgStr := '';
+
+					if midStr(dumpStr,innerLoopCount,1) = ',' then begin
+						if fillArgStr = thirdChunk then isLiteral := FALSE;
+						endLoop := TRUE;
+						fillArgStr := '';
+					end;
+
+					if innerLoopCount = length(dumpStr) then begin
+						if fillArgStr = thirdChunk then isLiteral := FALSE;
+						endLoop := TRUE;
+						fillArgStr := '';
+					end;
+
+				end;
+				end;
+				end;
+
+				innerLoopCount := innerLoopCount + 1;
+				if innerLoopCount > length(dumpStr) then endLoop := TRUE;
+
+			end;	// while endLoop = FALSE
+
+			count := count + 1;
+
+		end;	// while count < identifierList.count
+
+		tryNum := tryNum + 1;
+		if tryNum = 4 then endTries := TRUE;
+
+	end;	// while endTries = FALSE
+
+	if isLiteral = FALSE then begin
+		if expressionStr <> '' then write(module_output, '%' + expressionStr);
+	end;
+
+	if isLiteral = TRUE then begin
+
+		xlatePrimitive(2,expressionStr);
+
+		if xLate_record.whichField = 2 then intValue := xLate_record.int;
+
+		if xLate_record.whichField <> 2 then begin
+			writeln('Found malformed character literal.  Halting compilation.');
+
+			writeln('    offending file: ' + currentModuleFile);
+			write('    line number: ');  writeln(currentLineNumber);
+			write('    line chunks: ');  writeln(firstChunk + ' ' + secondChunk + ' ' + thirdChunk + ' ' + fourthChunk + ' ' + fifthChunk + ' ' + sixthChunk);
+			halt;
+		end;
+
+		xLate_record.whichField := 0;
+		writeValue := TRUE;
+
+	end;	// if isLiteral = TRUE
+
+end;	// if varType = 2
+
+
+if isLiteral= TRUE then begin
+	if writeValue = TRUE then write(module_output,intToStr(intValue));
+end;
+
+//
+//	delete the old identifierList entry and replace with an entry that has the new value
+//
+
+// if sentenceType = 4 then check identifierList for matches for expressionStr2
+// if match is found, then update the new value
+
+if sentenceType = 4 then begin
+	if isLiteral = TRUE then begin
+
+		count := 0;
+
+		while count < identifierList.count do begin
+
+			dumpStr := identifierList.valueFromIndex[count];
+
+			innerLoopCount := 1;
+			numColons := 0;
+			testOldIDname := '';
+			testOldValueStr := '';
+			endLoop := FALSE;
+
+			if leftStr(dumpStr,1) <> '2' then innerLoopCount := length(dumpStr) + 1;	// skip over list entries that aren't characters
+
+			while endLoop = FALSE do begin
+
+				if rightStr(leftStr(dumpStr,innerLoopCount),1) = ':' then numColons := numColons + 1;
+
+				if (rightStr(leftStr(dumpStr,innerLoopCount),1) <> ':') AND (numColons = 3) then testOldIDname := testOldIDname + rightStr(leftStr(dumpStr,innerLoopCount),1);
+
+				if (numColons = 4) AND (testOldIDname <> expressionStr2) then endLoop := TRUE;		// if no match, end the loop
+
+				if (rightStr(leftStr(dumpStr,innerLoopCount),1) = ':') AND (numColons = 6) then begin
+					write('    identifierList.valueFromIndex[count]: ');	writeln(identifierList.valueFromIndex[count]);
+					identifierList.delete(count);
+				end;
+
+				if (rightStr(leftStr(dumpStr,innerLoopCount),1) <> ':') AND (numColons = 6) then testOldValueStr := testOldValueStr + rightStr(leftStr(dumpStr,innerLoopCount),1);
+
+				innerLoopCount := innerLoopCount + 1;
+				if innerLoopCount >= length(dumpStr) then endLoop := TRUE;
+			end;
+
+			if testOldValueStr <> '' then begin
+				identifierList.add(leftStr(dumpStr,innerLoopCount-1) + ':' + testOldValueStr);
+				expressionStr2 := testOldValueStr;
+				count := identifierList.count;
+			end;
+
+			count := count + 1;
+
+		end;	// while count < identifierList.count
+
+	end;	// if isLiteral = TRUE
+
+end;	// if sentenceType = 4
+
+end;	// procedure expression_handler
+
+<</expression_handler>>
+
+Finally, we need to wrap up the main program.
+
+If firstChunk is empty (which could happen if an input line contained only tabs), then we want to ignore it and move on.  However, if we find anything else at this point, then the program should print an error and halt.
+
+<<compiler_end>>
+
+
+
+//
+//	Finish up the main program.
+//
+
+writeln;
+writeln('found end of main program');
+
+
+if fileExists('C:\Users\meterwin\Desktop\source code\working\head.ll') = TRUE then begin
+
+	assign(header_file,'C:\Users\meterwin\Desktop\source code\working\head.ll');
+	append(header_file);
+	reset(module_output);
+
+	endHeaderLoop := FALSE;
+	while endHeaderLoop = FALSE do begin
+		readln(module_output,dumpStr);		// writeln('dumpStr: ' + dumpStr);
+		writeln(header_file,dumpStr);
+		if EOF(module_output) = TRUE then endHeaderLoop := TRUE;
+	end;
+
+	close(header_file);
+	close(module_output);
+
+	deleteFile('C:\Users\meterwin\Desktop\source code\working\imports.ll');
+	renameFile('C:\Users\meterwin\Desktop\source code\working\head.ll', 'C:\Users\meterwin\Desktop\source code\working\imports.ll');
+
+	writeln;
+	writeln('merged output files');
+
+end;
+
+
+
+writeln;
+i := 0;
+dumpStr := '';
+while i < call_list.count do begin
+	dumpStr := call_list.valueFromIndex[i];		writeln('    call_list: ' + dumpStr);
+	i := i + 1;
+end;
+i := 0;
+dumpStr := '';
+while i < identifierList.count do begin
+	dumpStr := identifierList.valueFromIndex[i];		writeln('    identifierList: ' + dumpStr);
+	i := i + 1;
+end;
+
+
+
+
+
+end.
+
+<</compiler_end>>
+
+
+Appendix:  Literate Handling
+
+
+If the input file was written in the literate style, then we want to extract the source code from the literate document.  We might need to do the same thing for any imported header files as well, so let's define this code as a procedure that we can call from several places.  Luckily, I've already written a literate programming tool, so I'll just re-use the code for that purpose.
+
+Basically, the literate code takes a text file written using tags (just like the ones used in this document), extracts the program code and then writes it in order to an output text file.  That output will then be re-used as the input file by the rest of the compiler.
+
+Here I'm just going to dump the literate code between two "literate" tags, rather than explaining it in detail.
+
+
+<<literate>>
+
+///////////////////////////////////////////////									///////
+///////////////////////////////////////////////			Procedure literate		///////
+///////////////////////////////////////////////									///////
+
+procedure literate (var currentFile:text); 
+
+var	endWSSearch			:	integer;
+	foundWS				:	integer;
+	foundTag			:	integer;
+	fileCount			:	integer;
+	searchTags			:	integer;
+	currentLineNumberL	:	integer;
+
+	output_file			:	text;
+	grabFile			:	text;
+
+	tagList				:	TStringList;
+
+	stringBuffer		:	ANSIstring;
+	currentTag			:	ANSIstring;
+	intString			:	ANSIstring;
+	workingString		:	ANSIstring;
+
+begin
+
+writeln('Starting the literate section now.');
+
+if isLiterate = TRUE then begin
+
+	currentTag := '';
+
+	tagList := TStringList.Create;		// create a list of strings in memory
+	
+	writeln;
+	currentLineNumberL := 1;
+	
+	while not EOF(currentFile) do begin
+	
+		foundTag := 0;
+		endWSSearch := 0;
+		countLetters := 1;
+		stringBuffer := '';
+		workingString := '';
+	
+		readln(input_file,stringBuffer);
+		workingString := trim(stringBuffer);
+		currentLineNumberL := currentLineNumberL + 1;
+	
+		// after we've found a tag, start exporting lines to the output file
+		// stop when we reach the end tag
+	
+		// note:  the modes are in reverse order so that the two modes never activate on the same line
+	
+		if mode = 3 then begin
+	
+		  if workingString[1] = '<' then begin
+		    if workingString[2] = '<' then begin
+			if workingString[3] = '/' then begin
+	
+				if lowerCase(workingString) = '<</' + currentTag + '>>' then begin
+	
+					mode := 2;
+					close(output_file);
+	
+				end;
+	
+				if lowerCase(workingString) <> '<</' + currentTag + '>>' then begin
+	
+					write('Error: End tag at line number ');
+					write(currentLineNumberL);
+					writeln(' doesn' + chr(39) + 't match the begin tag.');
+	
+					halt;
+				end;
+	
+	
+			end;  // if workingString[3] = '/'
+		    end;  // if workingString[2] = '<'
+		  end;  // if workingString[1] = '<'
+
+
+	
+			if workingString[1] <> '<' then begin
+				if workingString <> '' then begin
+					str(currentLineNumberL, intString);
+				
+					intString := intString + ' ';
+					intString := intString + stringBuffer;
+					stringBuffer := intString;
+
+					writeln(output_file, stringBuffer);
+				end;
+			end;
+
+	
+		end; // if mode = 3
+	
+	
+	
+		// after we've reached the end of the tag definition section, start looking for tags
+		// when we find a tag, start exporting stringBuffers to output files
+	
+		if mode = 2 then begin
+
+
+
+			searchTags := 1;
+			indexValue := 0;
+	
+			while searchTags = 1 do begin
+
+				if tagList.Count < 1 then searchTags := 0;
+	
+				if tagList.Count > 0 then begin
+
+					if workingString <> '' then begin
+
+					  if lowerCase(workingString) = '<<' + tagList.ValueFromIndex[indexValue] + '>>' then begin
+	
+						currentTag := tagList.ValueFromIndex[indexValue];
+						foundTag := 1;
+						searchTags := 0;
+						mode := 3;
+	
+						writeln('found tag ' + chr(34) + currentTag + chr(34));
+	
+					  end;
+	
+		
+					end;
+		
+					if workingString = '' then searchTags := 0;
+				end;
+	
+				indexValue := indexValue + 1;
+	
+				if indexValue > tagList.Count - 1 then searchTags := 0;
+	
+			end;
+	
+			if foundTag = 1 then begin
+
+				fileName := 'C:\Users\meterwin\Desktop\straightjacket\working\' + currentTag + '.txt';
+	
+				assign(output_file,fileName);
+	
+				If NOT FileExists(fileName) then begin
+					rewrite(output_file);
+					close(output_file);
+				end;
+	
+				append(output_file);
+
+
+			end;
+	
+		end;	// if mode = 2
+	
+	
+		// when the define tag has been found, add lines to the tag list
+		// mode = 2 when we reach the end of the defined tags
+		// error and quit if a tag contains a space or a tab
+		// otherwise, add the tag to the tag list
+	
+		if mode = 1 then begin
+	
+
+
+			if lowerCase(workingString) = '<</def>>' then begin
+				mode := 2;
+			end;
+	
+			if lowerCase(workingString) <> '<</def>>' then begin
+	
+				while endWSSearch = 0 do begin
+	
+					if countLetters <= length(workingString) then begin
+	
+						if workingString[countLetters] = ' ' then begin
+							endWSSearch := 1;
+							foundWS := 1;
+						end;
+	
+						if workingString[countLetters] = chr(9) then begin
+							endWSSearch := 1;
+							foundWS := 1;
+						end;
+	
+					end;
+	
+					countLetters := countLetters + 1;
+	
+					if countLetters > length(workingString) then endWSSearch := 1;
+	
+				end;	// while endWSSearch = 0
+	
+	
+				if foundWS = 1 then begin
+	
+					write('Error: Found whitespace within tag at line number ');
+					write(currentLineNumberL);
+					writeln('.  Exiting program.');
+	
+					halt;
+				end;
+	
+				if foundWS <> 1 then tagList.Add(lowerCase(workingString));
+	
+				writeln('added tag '+ lowerCase(workingString));
+	
+	
+			end;	// if workingString <> '<</def>>'
+	
+		end;	// if mode = 1
+	
+	
+	
+	
+	
+	
+		// for mode = 0, look for the define tag
+	
+		if mode = 0 then begin
+	
+			if lowerCase(workingString) = '<<def>>' then mode := 1;
+
+		end;
+	
+	end;	// while not EOF(input_file)
+
+	close(input_file);
+
+	assign(literate_output, 'C:\Users\meterwin\Desktop\source code\working\output.txt');
+	rewrite(literate_output);
+	append(literate_output);
+
+	
+	//
+	// now that we've extracted every snippet of source code, let's reassemble all of the pieces in order.
+	//
+	
+	writeln('found end of input file.  writing to the output file now.');
+	
+	fileCount := 0;
+	
+	while fileCount <= tagList.Count - 1 do begin
+	
+		currentTag := tagList.ValueFromIndex[fileCount];
+		fileName := 'C:\Users\meterwin\Desktop\straightjacket\working\' + currentTag + '.txt';
+	
+		If NOT FileExists(fileName) then begin
+	
+			writeln('File "' + fileName + '" not found.  Tag ' + chr(34) + currentTag + chr(34) + ' may not have been used.  Halting.');
+			halt;
+		end;
+	
+		If FileExists(fileName) then begin
+	
+			assign(grabFile,fileName);
+			reset(grabFile);
+	
+			while not EOF(grabFile) do begin
+	
+				readln(grabFile,stringBuffer);
+				writeln(literate_output,stringBuffer);
+	
+			end;
+	
+			close(grabFile);
+
+		end;
+	
+		fileCount := fileCount + 1;
+	
+	end;
+	
+	close(literate_output);
+	
+	
+	//
+	// delete the tag files (useful for testing)
+	//
+	
+	writeln('finished writing output.  cleaning up temporary files...');
+	
+	fileCount := 0;
+	
+	while fileCount <= tagList.Count - 1 do begin
+	
+		currentTag := tagList.ValueFromIndex[fileCount];
+		fileName := 'C:\Users\meterwin\Desktop\straightjacket\working\' + currentTag + '.txt';
+	
+		If NOT FileExists(fileName) then writeln('File "' + fileName + '" not found.');
+	
+		If FileExists(fileName) then begin
+			assign(grabFile,fileName);
+			deleteFile(fileName);
+		end;
+	
+		fileCount := fileCount + 1;
+	
+	end;
+	
+	writeln('finished extracting text.');
+
+	tagList.destroy;		// free up memory used by tagList, as it could be large, and it
+							// will no longer be needed.
+
+	//
+	//	reassign input_file to the output of the literate code-handling section
+	//
+
+	assign(input_file, 'C:\Users\meterwin\Desktop\straightjacket\output.txt');
+	reset(input_file);
+
+end;	// if isLiterate = TRUE
+
+mode := 0;
+
+end;	// procedure literate
+
+<</literate>>
+
+
+
+Appendix:  Beginning text
+---------------------------
+
+The following section includes comments on the program, an inclusion of GNU General Public License, the declaration section and the begin statement of the program.
+
+
+
+
+<<header>>
+
+// Straightjacket reference compiler - Copyright © 2012 Joshua Hanley
+
+// If requested, this program copies out-of-order source code from a text file
+// and writes it in-order to another text file.  It looks for text located between
+// tags formatted like this:  <<tagName>>  It exports the text it finds into
+// temporary files and then re-assembles the contents of those files in order.  To 
+// define the proper output order, the program first looks for a list of tags 
+// (without brackets) surrounded by <<def>> and <</def>> tags.  The final output
+// will contain text from each declared tag, in the order given by the tag list
+// within the <<def>> section.  The program will give an error and quit if a tag is
+// not used, if an undeclared tag is used, if a tag is misspelled or if a section
+// of text begins with one tag but is ended by another tag.  Tags are case-insensitive,
+// they may not contain spaces and they may not be indented by tabs.
+
+
+// Afterwards, the program treats the output of the literate section as the new input
+// file.  Next, the program sorts each line of the input file into terms, collecting
+// useful information as it goes.  If an input statement is encountered, the compiler
+// loops through the input file, collecting and translating declarations.  This
+// process is repeated until all of the input statements have been processed.  When a
+// program statement is encountered, the compiler translates the statements it encounters.
+
+
+//  This program is free software: you can redistribute it and/or modify
+//  it under the terms of the GNU General Public License as published by
+//  the Free Software Foundation, either version 3 of the License, or
+//  (at your option) any later version.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//  GNU General Public License for more details.
+//
+//  You should have received a copy of the GNU General Public License
+//  along with this program.  if not, see <http://www.gnu.org/licenses/gpl-3.0.html>.
+
+//  You can reach the creator of Legible Assembler through the SourceForge page at http://legibleasm.sourceforge.net
+
+
+program straightjacket_compiler;
+
+uses classes, sysutils, strutils, crt;
+
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////			This is the declaration section		///////
+///////////////////////////////////////////////												///////
+///////////////////////////////////////////////												///////
+
+type
+	switch = record
+		whichField 	: integer;
+		int 		: integer;
+		float 		: real;
+	end;
+
+var	mode						:	integer;
+	countLetters				:	integer;
+	numArgs						:	integer;
+	indexValue					:	integer;
+	currentLineNumber			:	integer;
+	tabCount					:	integer;
+	properIndent				:	integer;
+	sentenceType				:	integer;
+	subrType					:	integer;
+	modCharTest					:	integer;
+	modCharNum					:	integer;
+	modulePathCount				:	integer;
+	modulePathCount2			:	integer;
+	modulePathCount3			:	integer;
+	mainCount					:	integer;
+	paramLoopCount				:	integer;
+	currentBlockNum				:	integer;
+	tempVarNum					:	integer;
+	tempResultNum				:	integer;
+	numChunk					:	integer;
+//	currentIfnum				:	integer;
+	highestIfnum				:	integer;
+	ifOptionNum					:	integer;
+	ifElseNum					:	integer;
+	ifGuardLine					:	integer;
+//	ifCondBlockNum				:	integer;
+	conditionsProcessed			:	integer;
+	if_else_num					:	integer;
+	i							:	integer;
+
+	input_file					:	text;
+	final_output				:	text;
+	literate_output				:	text;
+	module_file					:	text;
+	module_output				:	text;
+	header_file					:	text;
+
+	identifierList				:	TStringList;
+	modulePath					:	TStringList;
+	call_list					:	TStringList;
+	break_list					:	TStringList;
+	loop_list					:	TStringList;
+	cond_list					:	TStringList;
+	control_list				:	TStringList;
+//	if_option_list				:	TStringList;
+	else_list					:	TStringList;
+	operator_list				:	TStringList;
+	subst_list					:	TStringList;
+
+	firstArg					:	ANSIstring;
+	secondArg					:	ANSIstring;
+	workingString				:	ANSIstring;
+
+	firstChunk					:	ANSIstring;
+	secondChunk					:	ANSIstring;
+	thirdChunk					:	ANSIstring;
+	fourthChunk					:	ANSIstring;
+	fifthChunk					:	ANSIstring;
+	sixthChunk					:	ANSIstring;
+
+	currentModule				:	ANSIstring;
+	fileName					:	ANSIstring;
+	currentSub					:	ANSIstring;
+	testModuleEntry				:	ANSIstring;
+	moduleNameThrowAway			:	ANSIstring;
+	currentModuleFile			:	ANSIstring;
+	privacyFlag					:	ANSIstring;
+	subrParams					:	ANSIstring;
+	dumpStr						:	ANSIstring;
+	paramType					:	ANSIstring;
+	recursionFlag				:	ANSIstring;
+	returnTypeStr				:	ANSIstring;
+	returnCodeStr				:	ANSIstring;
+	bodyString					:	ANSIstring;
+	break_str					:	ANSIstring;
+
+	IDfields_IDtype				:	ANSIstring;
+	IDfields_privacyFlag		:	ANSIstring;
+	IDfields_thirdField			:	ANSIstring;
+	IDfields_IDname				:	ANSIstring;
+	IDfields_fifthField			:	ANSIstring;
+	IDfields_sixthField			:	ANSIstring;
+	IDfields_lastVal			:	ANSIstring;
+	identifierTestIDName		:	ANSIstring;
+	identifierTestModuleName	:	ANSIstring;
+	identifierProcName			:	ANSIstring;
+	testdollarString			:	ANSIstring;
+
+	isLiterate					:	boolean;
+	isComment					:	boolean;
+	endHeaderLoop				:	boolean;
+	foundAlias					:	boolean;
+	foundUnusedEntry			:	boolean;
+	endRecheckModulePathList	:	boolean;
+	foundDuplicate				:	boolean;
+	finishedSubr				:	boolean;
+	endParamLoop				:	boolean;
+	wroteTail					:	boolean;
+	recursiveCurrentSub			:	boolean;
+	calledSelf					:	boolean;
+	returnTypeNeeded			:	boolean;
+	returnTypeUsed				:	boolean;
+	isProcedure					:	boolean;
+	endSHLoop					:	boolean;
+	inAloop						:	boolean;
+	isAnIfstatement				:	boolean;
+	isIfGuard					:	boolean;
+
+	xLate_record				:	switch;
+//	xLate_callStr				:	ANSIstring;
+
+procedure subr_call (var subr_name:ANSIstring; var subr_args:ANSIstring);	forward;
+procedure expression_handler (varType:integer; expressionStr:ANSIstring);	forward;
+
+<</header>>
+
+
