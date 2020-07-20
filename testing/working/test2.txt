@@ -1,4 +1,0 @@
-@something = internal global i8 66; B
-
-@something2 = internal global i8 0; null
-

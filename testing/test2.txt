@@ -1,6 +1,0 @@
-// comment
-
-// import `test3.txt` as test3
-
-var char something = `B`
-var nullable char something2
