@@ -1,0 +1,26 @@
+program if_then_else_test;
+
+var test: boolean;
+
+begin
+
+test := TRUE;
+
+if test = TRUE then begin
+	writeln('first branch.');
+end
+else begin
+	writeln('second branch.');
+end;
+
+test := FALSE;
+
+if test = TRUE then begin
+	writeln('first branch.');
+end
+else begin
+	writeln('second branch.');
+end;
+
+
+end.

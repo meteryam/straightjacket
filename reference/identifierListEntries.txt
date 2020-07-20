@@ -1,0 +1,24 @@
+
+subroutines:  
+	identifier_name!module_path!identifier_kind!call_count!live_value! return_type!parameter_types!
+
+	unhandled exceptions should use the * character in the module_path field
+
+variables and constants:  
+	identifier_name!module_path!identifier_kind!call_count!live_value! type!procedure_name!
+
+
+identifier kind digits:
+
+- private, shared, shared read-only
+- function, recursive function, foreign function, procedure, foreign procedure, variable, constant
+
+type digits:
+
+- normal, target, pointer, user-defined
+- primitive, array, list, list of arrays, user-defined
+- char, bool, int, float, complex, user-defined
+- 8-bit, 16-bit, 32-bit, 64-bit, user-defined
+- unsigned, signed, user-defined
+- non-nullable, nullable, user-defined
+

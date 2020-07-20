@@ -1,0 +1,279 @@
+program straightjacket;
+
+// uses classes, literate, statement, branch, deftype, defun, vardef, no_leading_WS;
+uses classes, sysutils, literate, branch, no_leading_WS, getchunks, vardef, extract_fields;
+
+var numargs: integer;
+var currentIndentation: integer;
+var moduleNameLength: integer;
+var fileNameLength: integer;
+var lineNumber: integer;
+// var i: integer;
+
+var inputFile: textFile;
+
+var module_list: tstringList;
+var literate_list: tstringList;
+var chunk_list: tstringList;
+// var branch_list: tstringlist;
+var identifier_list: tstringlist;
+
+var currentModule: string;
+var currentLine: ansiString;
+var moduleName: string;
+var currentModuleAlias: string;
+var firstChunk: string;
+var secondChunk: string;
+var fourthChunk: string;
+var module: string;
+var paramStr2: string;
+var bareStr: string;
+// var currentChunk: string;
+
+var inputChar: char;
+
+var foundNWS: boolean;
+var foundImport: boolean;
+var foundMatch: boolean;
+
+procedure switch_files();
+begin
+	fileNameLength := pos('!',module_list.valueFromIndex[module_list.count-1])-1;
+	moduleNameLength := length(module_list.valueFromIndex[module_list.count-1]);
+
+	currentModule := copy(module_list.valueFromIndex[module_list.count-1],1,fileNameLength);
+	currentModuleAlias := copy(module_list.valueFromIndex[module_list.count-1],fileNameLength+2,moduleNameLength);
+
+	//writeln('currentModule: ' + currentModule);
+
+	assign(inputFile,currentModule);
+	reset(inputFile);
+	//foundImport := FALSE;
+end;
+
+begin
+
+//
+// initialize variables
+//
+
+module_list	:= tstringlist.create;
+literate_list := tstringlist.create;
+chunk_list := tstringlist.create;
+identifier_list := tstringlist.create;
+
+foundImport := FALSE;
+
+//
+// parse arguments
+//
+
+numargs := paramcount();
+lineNumber := 0;
+// add __writechar to identifier_list
+
+if (numargs < 1) OR (numargs > 2) then
+begin
+	writeln('wrong number of arguments.');
+	halt;
+end;
+
+if (numargs = 1) then
+begin
+	moduleName := paramStr(1) + '!main';
+	module_list.add(moduleName);
+	literate_list.add('0');
+end;
+
+if (numargs = 2) then
+begin
+
+	if paramStr(1) <> '-l' then begin
+		writeln('if straightjacket is given two arguments, the first argument must be "-l".');
+		halt;
+	end;
+
+	if paramStr(1) = '-l' then begin
+		paramStr2 := paramStr(2);
+		moduleName := literate_extract(paramStr2) + '!main';  // the alias for the main program is always "main"
+		module_list.add(moduleName);
+		literate_list.add('1');
+
+		// modify this to simply add the main module as a literate module
+
+	end;
+
+end;
+
+
+foundImport := FALSE;
+
+//
+// get the filename and alias for the last module added to the module list
+//
+
+switch_files();
+
+while not EOF(inputFile) do begin
+
+	readln(inputFile,currentLine);
+
+	chunk_list := getchunks.getchunks(currentLine);
+
+	//
+	// chop currentLine into chunks
+	//
+
+	if chunk_list.count > 0 then begin
+
+		for inputChar in currentLine do begin
+	
+			//
+			// count indentation levels
+			//
+	
+			if foundNWS = FALSE then begin
+				if inputChar = ' ' then begin
+					writeln('lines may not begin with spaces.  halting.');
+					halt;
+				end;
+				if inputChar = chr(9) then begin
+					currentIndentation := currentIndentation + 1;
+				end;
+				if (inputChar <> chr(9)) AND (inputChar <> ' ') then break;
+			end;
+		end;
+
+		if (chunk_list.valuefromindex[0] = 'import') OR (chunk_list.valuefromindex[0] = 'import') then begin
+
+			//
+			//	look for a match in the existing module list.  add a new entry only if no match is found.
+			//
+
+			foundMatch := FALSE;
+
+			for module in module_list do begin
+
+				if chunk_list.valuefromindex[0] = 'limport' then begin
+					secondChunk := chunk_list.valuefromindex[1];
+					fourthChunk := chunk_list.valuefromindex[3];
+					if module = literate_extract(secondChunk) + '!' + fourthChunk then foundMatch := TRUE;
+
+					// modify the literate_extract procedure to create the literate output file in the same directory as the input file
+
+				end;
+
+				if chunk_list.valuefromindex[0] = 'import' then begin
+					secondChunk := chunk_list.valuefromindex[1];
+					fourthChunk := chunk_list.valuefromindex[3];
+					if module = secondChunk + '!' + fourthChunk then foundMatch := TRUE;
+				end;
+
+			end;	// for module in module_list
+
+			if foundMatch = FALSE then begin
+
+				foundImport := TRUE;
+
+				firstChunk := chunk_list.valuefromindex[0];
+				secondChunk := chunk_list.valuefromindex[1];
+				fourthChunk := chunk_list.valuefromindex[3];
+
+				bareStr := leftstr(rightstr(secondChunk,length(secondChunk)-1),length(secondChunk)-2);
+				if firstChunk = 'limport' then moduleName := literate_extract(bareStr) + '!' + fourthChunk;
+				if firstChunk = 'import' then moduleName := bareStr + '!' + fourthChunk;
+				//writeln('moduleName: ' + bareStr);
+				module_list.add(moduleName);
+			end;
+
+		end;
+
+		if (chunk_list.valuefromindex[0] <> 'import') AND (chunk_list.valuefromindex[0] <> 'import') then begin
+
+			if foundImport = FALSE then break;
+
+			if foundImport = TRUE then begin
+				foundImport := FALSE;
+				switch_files();
+
+				//
+				// collect exception handlers
+				// add new procedures to identifier_list
+				//
+
+			end;
+
+		end;
+
+	end;	// if chunk_list.count > 0
+
+end;	// while not EOF(inputFile)
+
+close(inputFile);
+
+//
+// write exception-handling procedures
+//
+
+
+
+//
+// translate each module's code
+//
+
+while module_list.count > 0 do begin
+
+	switch_files();
+
+	// if current module is main:
+
+	//	define i32 @main()
+	//	{
+	//	enter:
+
+	while not EOF(inputFile) do begin
+		readln(inputFile,currentLine);
+		lineNumber := lineNumber + 1;
+		chunk_list := getchunks.getchunks(currentLine);
+
+		// handle changing indentation levels
+		// call close_control_flow() from the branch unit
+
+		if chunk_list.count > 0 then begin
+		if chunk_list.valuefromindex[0] <> '' then begin
+			//writeln;
+			firstChunk := chunk_list.valuefromindex[0];
+			case firstChunk of
+	//			'if': branch.branch(chunk_list, identifier_list, lineNumber);
+	//			'elseif': branch.branch(chunk_list, identifier_list, lineNumber);
+	//			'else': branch.branch(chunk_list, identifier_list, lineNumber);
+	//			'loop': branch.branch(chunk_list, lineNumber);
+	//			'foreach': branch.branch(chunk_list, identifier_list, lineNumber);
+				'var': vardef_proc(chunk_list, identifier_list, module_list, lineNumber, currentModule);	// later, will rewrite to look at type_list
+				'const': vardef_proc(chunk_list, identifier_list, module_list, lineNumber, currentModule);	// later, will rewrite to look at type_list
+	//			'defun': defun.defun(chunk_list, lineNumber);
+	//			'defproc': defun.defun(chunk_list, lineNumber);
+	//			'type': deftype.deftype(chunk_list, lineNumber);
+	//			'convert': deftype.convert(chunk_list, lineNumber);
+	//			else statement.statement_handler(chunk_list, identifier_list, lineNumber); 
+			end;
+		end;
+		end;
+
+	end;
+
+	module_list.delete(module_list.count-1);
+
+	// add code to handle modules with multiple aliases
+
+end;
+
+//
+// write the end of the output program
+//
+
+// exit:
+//	ret i32 0
+// }
+
+end.

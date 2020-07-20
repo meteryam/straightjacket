@@ -1,0 +1,120 @@
+
+- modify get_chunks to put the entire right-hand side of an expression into one chunk
+- modify get_chunks to group text enclosed by parentheses into its own chunk
+- modify get_chunks to handle if conditions specially
+- update language documentation
+- require "end" statement
+- write identifier_check function
+
+- strings
+	- character declarations
+		- properly define typeNumStr based on the variable's parameters
+		- double-check that constants are handled properly
+		- screen for reserved words
+	- character assignment
+		- need to look at both local and imported values
+		- error when assigning values to constants and read-only variables
+		- track indentifier calls
+		- track reachability
+	- 1d arrays
+		- __loadArrayChar
+		- __storeArrayChar
+		- concatenation:  &
+		- use zeroinitializer to zero-initialize arrays
+		- support quoted strings
+
+- move switch_file() to a unit
+- keep track of line numbers
+
+- control flow
+	- halt statements
+	- functions & procedures
+		- foreign function calls:  use "extern" keyword
+		- functions use the readonly attribute (unless they have no arguments, in which case they use the readnone attribute)
+		- use the noalias and nocapture keywords for function parameters
+		- procedures use the noreturn attribute
+		- use the sret parameter when returning pointers to containers
+		- subroutine declarations can't begin with underscores
+		- use call by reference (i.e. pass pointers)
+		- support tail recursion using the fastcc calling convention
+		- variable and constant declarations can be defined by the output of functions, as long as the function arguments are literals and/or constants
+	- exceptions
+		- use unwind and invoke, combined with function calls
+		- uncaught exceptions should print the exception error and halt
+		- to reduce code duplication, caught exceptions should result in procedure calls
+		- exceptions can be caught from within subroutines, or from outside procedures
+		- throw different exceptions for 0/0 and for n/0 (where n != 0)
+	- if-then statements
+		- conditions
+		- different conditions in the same if statement can have different types
+		- use short-circuit evaluation of compound conditions
+			- always evaluate conditions involving function calls last
+		- allow empty branches
+		- support if guards
+	- simple loops
+	- foreach loops
+
+- other types
+	- booleans
+		- support nullable booleans
+	- structs
+		- can use dots to reference fields
+		- fields can point to other variables within the same module (but not other modules)
+	- 2d arrays
+		- __transpose
+		- 2d concatenation:  & |
+		- slices
+		- type conversion (between 1d and 2d arrays)
+	- lists
+		- can use dots to reference deeply nested elements
+		- modify get_chunks to handle nested parentheses across multiple lines.  if get_chunks returns a chunk with unclosed open parens, pass a separate tstringlist to get_chunks and analyze it for completion (and/or errors).  append valid chunks until the end of the multi-line expression has been found.
+	- integers
+		- arithmetic
+		- when possible, detect divide by zero errors at compile time
+		- when multiplying a function's output by a variable, short-circuit the function call
+		- when multiplying a function's output by a constant or a literal, evaluate the function call first
+		- __arrayLength
+		- verify that literals aren't larger than the ranges they're asigned to
+		- use special literal "top" to represent the highest possible value
+		- throw an exception when overflowing the top value
+		- reserved words:  8, 16, 32 and 64 bit values are reserved words
+	- floating-point numbers
+		- use special literal "top" to represent the highest possible value
+		- throw an exception when overflowing the top value
+		- reserved words:  8, 16, 32 and 64 bit values are reserved words
+	- complex numbers
+		- use special literal "top" to represent the highest possible value
+		- throw an exception when overflowing the top value
+		- reserved words:  8, 16, 32 and 64 bit values are reserved words
+	- pointers (may be required for file i/o and other miscellaneous external functions)
+		- require targets to use the keyword "target" (permits easier alias analysis)
+		- prohibit aliasing
+		- prohibit pointer arithmetic
+		- user-managed pointers may point to the root of a memory object, but not to its contents
+		- prohibit null pointer dereferences
+	- user-defined types
+		- allow types to be exported
+		- extended types:  every extended type can be used wherever the original type is expected.  types can only extend built-in types, or other types within the same module.
+		- operators keyword:  can be true or false (i.e. either it uses operators appropriate to its structure or it uses no operators at all)
+
+- optimizations
+	- use the alwaysinline attribute for subroutines used only once
+	- use the inlinehint attribute for subroutines used twice
+	- use the coldcc calling convention for subroutines called more than twice (prevents inlining)
+	- dead code elimination
+	- memoization:  programmer can specify files that list the most common input values for functions used by the program.  the compiler will then calculate the output values for those functions and store them for runtime use.
+
+=========================
+
+- create a struct with a length and a pointer to the hello world array
+- get a pointer to the hello world array
+- convert that pointer to an integer
+- store that pointer into the struct's integer field
+- get the value of that integer
+- convert that value to a pointer
+- use that pointer to print the hello world array
+
+- stuff both the initial pointer and the array into structs
+
+- create two linked structs, partially fill them and then print an arbitrary character from their contents
+

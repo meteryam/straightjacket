@@ -1,0 +1,205 @@
+﻿
+literate flag:  -l
+argument:  main module
+
+add main module to module list
+
+loop through current module
+
+	foundChunks = 0
+	if literateFlag then call literate()
+	read line
+	get_chunks()
+
+	if foundChunks = 1 then
+		if literateFlag then
+			set currentLine from first list item
+			remove first list item
+
+		if indented
+			check branch list for matching indentation
+			if found then
+				call close_branch()
+
+		if first_list_item is "import" then import_module(0)
+		elseif first_list_item is "limport" then import_module(1)
+		elseif first_list_item is "if" then branch(if)
+		elseif first_list_item is "elseif" then branch(elseif)
+		elseif first_list_item is "else" then branch(else)
+		elseif first_list_item is "loop" then branch(loop)
+		elseif first_list_item is "foreach" then branch(foreach)
+		elseif first_list_item is "def" then vardef(0)
+		elseif first_list_item is "defcon" then vardef(1)
+		elseif first_list_item is "defun" then defun(0)
+		elseif first_list_item is "defroc" then defun(1)
+		elseif first_list_item is "deftype" then deftype()
+		elseif first_list_item is "convert" then convert()
+		else statement_handler()
+
+procedure get_chunks
+
+	each chunk goes into one line in a tstringlist
+	detect indentation levels
+	skip comments
+	set foundChunks flag
+
+procedure import_module
+
+	if module not already in module list
+		append module to module list
+		close open module
+		open new module
+		set literateFlag
+
+//
+//	statement unit
+//
+
+procedure statement_handler
+
+	if not main module and not embedded then throw error and halt
+
+	if halt then print halt code
+	elseif break then close_branch()
+	elseif second_list_item is "=" then
+		read variable definition from identifier_list
+		error out if a variable is out of scope
+		error out if changing a constant or read-only variable
+		use case statement to define variable type
+		print assignment code based on variable type
+	else
+		check identifier_list for procedure call
+		error out of procedure out of scope or not found
+		print procedure call code
+
+//
+//	deftype unit
+//
+
+procedure convert
+
+	if not main module and not embedded then throw error and halt
+
+	read variable definition from identifier_list
+	update type
+	append new variable definition to identifier_list
+	remove old variable definition from identifier_list
+
+procedure deftype
+
+	if main_module then throw error
+	add type name to type_aliases list
+
+//
+//	defun unit
+//
+
+procedure defun
+
+	if main_module then throw error
+
+	if argument is 0 then
+		print function definition
+
+	if argument is 1 then
+		print procedure definition
+
+//
+//	vardef unit
+//
+
+procedure vardef
+
+	if main_module then throw error
+
+	if argument is 0 then
+		add to identifier_list
+		print variable definition based on type_aliases list
+
+	if argument is 1 then
+		add to identifier_list
+		print variable definition based on type_aliases list
+
+//
+//	branch unit
+//
+
+procedure condition_handler
+
+	print condition based on type
+		error out if a variable is out of scope
+		error out if changing a constant or read-only variable
+
+procedure close_branch
+
+	print appropriate branch number
+
+	if closing loop then
+		print jump to loop entrance label
+		print loop exit label
+
+	if closing foreach loop then
+		print loop conditions
+		print loop exit label
+
+	remove closed branch from branch list
+
+procedure branch
+
+	if not main module and not embedded then throw error and halt
+
+	if argument is "if" then
+		add current indentation and next branch number to branch list
+		call condition_handler(second_list_item)
+		if "then" keyword is followed by a statement then statement_handler()
+
+	if argument is "elseif" then
+		print appropriate branch number
+		call condition_handler(second_list_item)
+
+	if argument is "else" then print appropriate branch number
+
+	if argument is "loop" then
+		add current indentation, next branch number and loop flag to branch list
+		print loop entrance label
+
+	if argument is "foreach" then
+		add current indentation, next branch number, loop flag and variable to branch list
+		print loop entrance label
+
+//
+//	literate unit
+//
+
+[pull output file name from argument list.  make sure it's different from the input file name.]
+[call literate()]
+
+procedure add_tags
+	if tag, then add tag to tags list
+	if end-define tag, set mode 0
+
+procedure append_line
+	if tag then
+		append line to tag file; include line number
+		set mode 2
+	elseif begin tag then
+		set mode 1
+
+procedure ignore
+	if end tag then set mode 0
+
+procedure literate
+
+	set mode 0
+
+	loop through file
+		read line
+
+		if mode 0 then append_line()	// mode 0:  comments
+		elseif mode 1 then add_tags()	// mode 1:  adding tags
+		elseif mode 2 then ignore()		// mode 2:  building files
+
+	append files together
+	[remove last item in module list]
+	[add new file to end of module list]
+

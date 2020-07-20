@@ -1,0 +1,6 @@
+import `test2.txt` as test2
+
+//if main
+//fdsfd
+
+// var char something = `B`
