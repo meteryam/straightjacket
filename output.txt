@@ -1,7 +1,0 @@
-struct _int08_node *test_tree;
-struct _int08_node *test_tree_node;
-struct _track_int08_node *test_tree_path;
-
-test_tree = 0;
-test_tree_node = test_tree;
-
