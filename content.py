@@ -1,56 +1,6 @@
 # -*- coding: utf-8 -*-
 
-
-"""
-
-:scope_handler
-call identifier_handler
-if module
-	if import & not in input files
-		add file and module name to list of input files
-
-		# only one "main" module can exist in a single program
-		# if external "main" modules are imported, they must be aliased
-		# all identifiers share the same namespace
-	end if
-	if current_file != open_file
-		close current file
-		change current file to new file
-		open new file
-		mode = "begin"
-	else
-		change current file to new file
-else function
-	# modify current context
-else procedure
-	# if enclosing context is a function, throw error and exit
-	# modify current context
-else if_condition
-	# modify current context
-else loop_label
-	# modify current context
-else end function
-	# destroy variables that pass out of scope, unless the function is recursive
-	# write goto label
-	# write closing brace
-	# mode = definitions
-else end procedure
-	# destroy variables that pass out of scope
-	# write goto label
-	# write closing brace
-	# mode = definitions
-else end if_condition
-	# strip condition from current scope
-	# strip label from current scope
-	# write closing brace
-else end loop_label
-	# strip label from current scope
-	# write closing brace
-else abort
-
-end scope_handler
-
-"""
+import sys
 
 def tokenizer(input_string):
 	
@@ -79,7 +29,7 @@ def tokenizer(input_string):
 			prevchar = input_string[count]
 		
 		
-		# exclude single-line comments
+		# handle single-line comments
 
 		if (count + 1 < len(input_string)):
 			nextchar = input_string[count+1]
@@ -93,14 +43,20 @@ def tokenizer(input_string):
 
 		if mode == 'append':
 			if (char == '(') and (prevchar != '\\'):
+				if working_str != '':
+					working_array.append(working_str)
 				mode = 'paren_token'
 				numparens = numparens + 1
 				working_str = char
 			elif (char == '{') and (prevchar != '\\'):
+				if working_str != '':
+					working_array.append(working_str)
 				mode = 'brace_token'
 				numbraces = numbraces + 1
 				working_str = char
 			elif (char == '`') and (prevchar != '\\'):
+				if working_str != '':
+					working_array.append(working_str)
 				mode = 'quote_token'
 				working_str = char
 			elif (char == ' ') and (prevchar != ' ') and (prevchar != '\\') and (working_str != ''):
@@ -132,7 +88,7 @@ def tokenizer(input_string):
 
 
 		# build tokens surrounded by parentheses
-		# these will be used for conditionals and expressions
+		# these will be used for conditionals, expressions and subroutine calls
 		
 		elif mode == 'paren_token':
 			if (char == '(') and (prevchar != '\\'):
@@ -195,20 +151,105 @@ def tokenizer(input_string):
 		
 		count = count + 1
 		
-	# exclude multi-line comments
+	# when multi-line comments are encountered, remove commented tokens
 		
-	# loop through working_array
-		# if end of multi-line comment found
-			# check context
-			# if in a multi-line comment
-				# excluded commented text
-				# call context handler
-			# else:
-				# throw error and halt
+	count = 0
+	final = len(working_array) - 1
+	countdown = 0
+	foundEnd = False
+	
+	for entry in working_array:
+		if entry == "=begin":
+			rangecount = final
+			while True:
+				countdown = countdown - 1
+				if countdown < count:
+					break
+				else:
+					del working_array[rangecount]
+			#scope_handler('comment_begin','')
+		elif entry == "=end":
+			foundEnd = True
+			rangecount = 0
+			while True:
+				del working_array[rangecount]
+				countdown = countdown + 1
+				if countdown >= count:
+					break
+			#scope_handler('comment_end','')
+			
+		count = count + 1
 
 	return working_array
 
 # end tokenizer
+
+
+"""
+
+def scope_handler(type,name):
+
+	if type == 'comment_begin':
+		return [type,name]
+	#elif type == 'comment_end':
+		#if len(myglobals.current_context) == 0:
+			#sys.exit('Incorrect context provided on line ' + line_number + 'of file \"' + open_file + '\".')
+		#elif (len(myglobals.current_context) > 0) and (myglobals.current_context[-1][0] != 'comment_begin'):
+			#sys.exit('Incorrect context provided on line ' + line_number + 'of file \"' + open_file + '\".  Current context is \"' + myglobals.current_context[-1][0] + '\".')
+			
+
+
+
+	if comment
+		# modify current context
+	else module
+		if import & not in input files
+			add file and module name to list of input files
+
+			# only one "main" module can exist in a single program
+			# if external "main" modules are imported, they must be aliased
+			# all identifiers share the same namespace
+		end if
+		if current_file != open_file
+			close current file
+			change current file to new file
+			open new file
+			mode = "begin"
+		else
+			change current file to new file
+	else function
+		# modify current context
+	else procedure
+		# if enclosing context is a function, throw error and exit
+		# modify current context
+	else if_condition
+		# modify current context
+	else loop_label
+		# modify current context
+	else end function
+		# destroy variables that pass out of scope, unless the function is recursive
+		# write goto label
+		# write closing brace
+		# mode = definitions
+	else end procedure
+		# destroy variables that pass out of scope
+		# write goto label
+		# write closing brace
+		# mode = definitions
+	else end if_condition
+		# strip condition from current scope
+		# strip label from current scope
+		# write closing brace
+		# clean up temporary list variables
+	else end loop_label
+		# strip label from current scope
+		# write closing brace
+	else abort
+
+# end scope_handler
+
+"""
+
 
 """
 
@@ -427,7 +468,7 @@ end variable_declaration_handler
 		# function calls can be passed as variables
 		# function calls can be piped
 			# f | g						# pipe operator is implied to connect return to single input
-			# f | g ( x, |> )		# pipe operator connects return to second input
+			# f | g ( x, 1> )		# pipe operator connects return to second input
 			# tail call elimination
 
 end expression_handler
@@ -483,6 +524,14 @@ end define_exceptions
 		
 end exception_catcher
 
+:block_contexts
+
+	# used for named control flow constructs
+	
+	# also used for anonymous blocks (lists in if combs)
+
+end block_contexts
+
 :if_handler
 
 	# if condition
@@ -498,7 +547,7 @@ end exception_catcher
 			# use & as a concatenation operator
 			# allow logical operators OR, XOR and NOT in appended strings
 			# use curly braces to nest conditions
-	# include conditions in context tracking
+	# when using lists in conditions, create anonymous block contexts (anonymous unless explicitly named by the programmer) that limit the lifespan of those lists to the duration of the if conditions
 	# references to list elements must be checked for null
 	# emit "if" or "else if" code
 
