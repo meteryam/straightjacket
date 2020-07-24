@@ -1,6 +1,43 @@
 # -*- coding: utf-8 -*-
 
+"""
+
+GPL v3:
+
+The straightjacket copiler translates code written in the straightjacket
+programming language to c code.
+Copyright (C) 2020 Jessica Richards
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+
+"""
+
 import sys
+
+def my_error_message(message,line_number,filename,input_line):
+
+	if input_line != '':
+		print message + str(line_number) + ' of file \"' + filename + '\":'
+		print '>> ' + input_line.rstrip()
+		sys.exit('Aborting compilation.')
+	else:
+		sys.exit(message + str(line_number) + ' of file \"' + filename + '\".  Aborting compilation.')
+
+
+
 
 def tokenizer(input_string):
 	
@@ -267,8 +304,8 @@ end identifier_validator
 
 :declare_subroutine
 
-	# declare returnType func : [argType] [argType]
-	# declare proc : [argType] [argType]
+	# declare [foreign] returnType function : [argType] [argType]
+	# declare [foreign] procedure : [argType] [argType]
 	
 	# declare whether a subroutine is a function or a procedure or an operator
 			# operators can only be defined within the context of a type
@@ -283,16 +320,25 @@ end declare_subroutine
 
 :struct_declaration_handler
 
-	# simple structs:  declare (export) (const) structName as int (= 5)
+	# variable declarations
+			declare (export) (const) int : myType (= 5)
+		or
+			declare type (export) (const) struct : typename (= 5, 2, 1.5)
+			
+			# the keyword "type" makes the definition a type rather than an instance.  in this case, the type name would be declared, rather than the variable name
+
+	# type declarations
+
+	# simple structs:  declare type (export) structName as int (= 5)
 			# structs with only one field can be treated as if they weren't structs
 			# can (optionally) be addressed without mentioning their fields
 			# field names must be globally unique
 			
 	# tuple structs: 
-			declare (export) (const/mutable) struct structName
+			declare type (export) struct structName
 				operator + is myfunC(structName,structName)
 				operator ++ is myfunD(structName)
-				myfunA(structName -> structNameA)
+				myfunA(structName -> structNameA)	# defines a type conversion function
 				no_arithmetic			# prohibits the use of built-in arithmetic operators
 			begin
 				int (= 0)																								# extends type "int"
@@ -314,12 +360,6 @@ end declare_subroutine
 				# the characters ! and * can be operators
 			# exported variables are exported as read-only objects by default; must use "mutable" keyword to make exported variables mutable
 
-	# type definitions
-			type (export) int : myType
-		or
-			type (export) struct : myType
-			
-			# the keyword "type" makes the definition a type rather than an instance.  in this case, the type name would be declared, rather than the variable name
 
 	# fields
 		# if no fieldname is given, the name of the field defaults to the type
@@ -353,7 +393,7 @@ end struct_declaration_handler
 	
 :list_declaration_handler
 
-	# declare (export) (const/mutable) (type) list listName (= { 1 2})
+	# declare (type) (export) (const) list : listName (= { 1, 2})
 
 	# format:  8-bit type, 8-bit exponent, structs, pointer to previous entry, pointer to next entry
 			# reserved type numbers:  int, float, pointer to list
@@ -469,7 +509,6 @@ end variable_declaration_handler
 		# function calls can be piped
 			# f | g						# pipe operator is implied to connect return to single input
 			# f | g ( x, 1> )		# pipe operator connects return to second input
-			# tail call elimination
 
 end expression_handler
 
@@ -524,14 +563,6 @@ end define_exceptions
 		
 end exception_catcher
 
-:block_contexts
-
-	# used for named control flow constructs
-	
-	# also used for anonymous blocks (lists in if combs)
-
-end block_contexts
-
 :if_handler
 
 	# if condition
@@ -547,7 +578,6 @@ end block_contexts
 			# use & as a concatenation operator
 			# allow logical operators OR, XOR and NOT in appended strings
 			# use curly braces to nest conditions
-	# when using lists in conditions, create anonymous block contexts (anonymous unless explicitly named by the programmer) that limit the lifespan of those lists to the duration of the if conditions
 	# references to list elements must be checked for null
 	# emit "if" or "else if" code
 

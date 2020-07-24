@@ -2,6 +2,31 @@
 
 # -*- coding: utf-8 -*-
 
+"""
+
+GPL v3:
+
+The straightjacket copiler translates code written in the straightjacket
+programming language to c code.
+Copyright (C) 2020 Jessica Richards
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+
+"""
+
 import sys, getopt
 
 import content
@@ -15,7 +40,6 @@ current_module_entry = []
 current_context = []
 
 multi_line_comment = False
-no_truncate = True
 variable_declaration = False
 procedure_call = False
 expression = False
@@ -96,8 +120,8 @@ while True:
 			if (token_list[0] != 'declare') and (len(token_list[0]) > 1):
 				variable_declaration = True
 				for i in token_list:
-					if i == ':':
-						variable_declaration = False		# variable declarations don't have colon symbols, but subroutine and type declarations do
+					if (i == 'type') or (i == 'function') or (i == 'procedure'):
+						variable_declaration = False
 
 			elif (len(token_list[0]) == 2) and (token_list[-1][0] == '(') and (token_list[-1][-1] == ')'):
 				procedure_call = True
@@ -105,18 +129,24 @@ while True:
 			elif (token_list[0] != 'declare') and (len(token_list[0]) > 1) and (token_list[-2] == '='):
 				expression = True
 		
-			# if mode == "collect":
+			if mode == "collect":
 				
-				# if (token_list[0] == "import") or (token_list[0] == "limport")
-					# ignore duplicates
-					# if token_list[0] == "limport"
-						# call literate_handler
-						# set modulepath to literate_handler_output
-					# else
-						# set filename to token_list[1]
-					# content.scope_handler(module,modulepath,aliasname)
-					# close(open_file)
-					# break
+				if ((token_list[0] == "import") or (token_list[0] == "limport")) and (len(token_list) >= 4):
+					if (token_list[1] != "foreign"):
+						# fill local module_list with duplicates
+						# this allows us to verify that module calls are correct
+						if token_list[0] == "limport":
+							# call literate_handler
+							# set modulepath to literate_handler_output
+							nop = 1
+						else:
+							modulepath = token_list[1]
+						# update current_context
+						# close(open_file)
+						# break
+					else:
+						# to be implemented later
+						nop = 1
 			
 				# look for two words:  module modulename
 					# the module name must be "main" and must be the first module
@@ -229,8 +259,8 @@ while True:
 					# else block_label = ""
 					# call scope_handler(end,token_list[1],block_label)
 					
-				# else
-					# found illegal statement in the definitions section
+			else:
+				content.my_error_message('We see an unrecognized statement on line ',line_number,working_file,line)
 
 
 	# wind back through all of the modules we've added in reverse order

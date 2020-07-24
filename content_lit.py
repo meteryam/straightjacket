@@ -1,3 +1,33 @@
+"""
+
+GPL v3:
+
+The straightjacket copiler translates code written in the straightjacket
+programming language to c code.
+Copyright (C) 2020 Jessica Richards
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+Notes:
+
+I wrote this module in Ruby two years ago.  It works perfectly well (as did the Pascal version I wrote in 2012), but I'll probably rewrite it in Python.  We'll see.
+
+
+
+"""
+
 
 :literate_handler
 

@@ -1,6 +1,6 @@
 # straightjacket
 
-Summary
+## Summary
 
 This is the 2020 rewrite of the straightjacket compiler.  I'm writing it in Python, and it will output c code rather than creating executables.  The plan is to implement these features last:
 
@@ -8,15 +8,18 @@ This is the 2020 rewrite of the straightjacket compiler.  I'm writing it in Pyth
 - pattern matching for lists within conditionals
 - floating point numbers
 - literate programming
+- foreign function interface
 - small standard library (strings, i/o, etc)
 - extended standard library
 
 Thus far, only tokenization and comments work.
 
 
-Detailed Description
+## Detailed Description
 
-This program implements the reference version of the Straightjacket compiler.  Straightjacket is a minimalist, modular, procedural compiled language with primitive lists, conditional pattern matching and generics.  Its syntax was inspired by multiple languages, and that eclecticism of inspiration shows (perhaps painfully).  My design philosophy hinges on two ideas:
+This program implements the reference version of the Straightjacket compiler.  I designed Straightjacket to fit my own programming needs in ways that existing languages can't.  Fair warning; I am not a programmer by trade, and it probably shows (in a bad way).  Nevertheless, I intend to press on, partly for the fun of it and partly for its expected personal utility.
+
+Straightjacket is a minimalist, modular, procedural compiled language with primitive lists, conditional pattern matching and generics.  Its syntax was inspired by multiple languages, and that eclecticism of inspiration shows (perhaps painfully).  My design philosophy hinges on two ideas:
 
 1.  simplicity is better than complexity
 2.  clarity is better than consistency
@@ -36,6 +39,9 @@ The main module also contains a "body", which is the equivalent of the "main fun
 Each module may contain zero or more functions (which must not have side effects) or procedures (which should have side effects).  Functions and procedures may be private (the default) or they may be exported for use by other modules.  Exported resources must be imported explicitly in order to be used by other modules, and they must always explicitly refer to the module from whence they came.
 
 (declaring and defining subroutines...)
+
+declare [foreign] returnType function : [argType] [argType]
+declare [foreign] procedure : [argType] [argType]
 
 (generics...)
 
@@ -63,7 +69,7 @@ else
 	...
 [end if [blockname]] or [else abort [blockname]]
 
-(pattern-matching conditionals)
+(logical operators, pattern-matching conditionals)
 
 (optional block names...)
 
@@ -77,13 +83,69 @@ Straightjacket has five built-in data types:
 - float
 - number
 
-Every variable is either a list or a struct, and every element of a list or struct is either an int or a float.  The type "number" is reserved for the arguments and local variables of generic functions, which can then be applied to either ints or floats.
+Every variable is either a list or a struct, and every element of a list or struct is either an int or a float.  Integers and floats also have variations to account for different widths (eg int8, int32, etc) and to support unsigned integers (eg int32+).  The type "number" is reserved for the arguments and local variables of generic functions, which can then be applied to either ints or floats.
 
-(declaring variables and custom types...)
+(declaring variables...)
+
+declare (export) (const) int : myType (= 5)
+
+declare (export) (const) struct : typename (= 5, 2, 1.5)
+
+declare (export) (const) list : listName (= { 1, 2, listName })
+
+
+(declaring custom types...)
+
+declare type (export) structName as int (= 5)
+
+declare type (export) struct structName
+	operator + is myfunC(structName,structName)
+	operator ++ is myfunD(structName)
+	myfunA(structName -> structNameA)	# defines a type conversion function
+	no_arithmetic			# prohibits the use of built-in arithmetic operators
+begin
+	int (= 0)																								# extends type "int"
+	float : myFloat :i (= 1.2)																# creates suffix "i"
+	int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }				# enum section creates values
+	[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }		# range prefix limits allowed range
+	const int : letter_a (=97) quoted_enum { a = 97 }		# enumerated values must be quoted
+	myfunC(myInt) (: myInt2) (= myfunC(0))						# uses a user-defined range function
+end struct
+
+declare type (export) (const) list : listName (= { listName })
+
+
+(defining custom types...)
+
+structName as int (= 5)
+
+struct structName
+	operator + is myfunC(structName,structName)
+	operator ++ is myfunD(structName)
+	myfunA(structName -> structNameA)
+	no_arithmetic			# prohibits the use of built-in arithmetic operators
+begin
+	int (= 0)																								# extends type "int"
+	float : myFloat :i (= 1.2)																# creates suffix "i"
+	int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }				# enum section creates values
+	[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }		# range prefix limits allowed range
+	const int : letter_a (=97) quoted_enum { a = 97 }		# enumerated values must be quoted
+	myfunC(myInt) (: myInt2) (= myfunC(0))						# uses a user-defined range function
+end struct
+
+
 
 Lists and structs that contain lists are stored on the heap, and are automatically reclaimed when they go out of scope.  A function's local variables only go out of scope when it returns a value.  All other structs go on the stack.  These choices ensure that all variables are eliminated when they go out of scope, thus preventing many types of memory leaks.
 
-Straightjacket natively supports a primitive form of literate programming...
+(expressions...)
+
+- right-hand equations
+- operators
+- order of precedence
+
+Straightjacket natively supports a primitive form of literate programming.  If the main file is a literate file, then the compiler needs to process it accordingly.  The compiler first looks for a list of tags (without brackets) surrounded by <<def>> and <</def>> tags.  The final output will contain text from each declared tag, in the order given by the tag list within the <<def>> section.  Then the compiler looks for text located between tags formatted like this:  <<tagName>>
+
+The final output will contain text from each declared tag, in the order given by the tag list within the <<def>> section.  The compiler will print an error and abort if a tag is not used, if an undeclared tag is used, if a tag is misspelled or if a section of text begins with one tag but is ended by another tag.  Tags are case-insensitive, they may not contain spaces and they may not be indented by tabs.
 
 Other details:
 
