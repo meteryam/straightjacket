@@ -49,6 +49,8 @@ def tokenizer(input_string):
 	# other tokens are broken up by whitespace
 	# to ensure case-insensitivity, every character outside of a quoted string should be forced to lowercase
 	# detect and exclude multi-line comments
+	
+	# to do:  don't change the case of foreign function calls
 
 	mode = 'append'
 	count = 0
@@ -149,6 +151,8 @@ def tokenizer(input_string):
 					if ( char == '`' ) and (prevchar != '\\'):
 						quoted = False
 					working_str = working_str + char
+					if ( count == len(input_string) - 1 ):
+						working_array.append(working_str)
 
 		# build tokens surrounded by curly braces that aren't embedded within parentheses
 		# these will be used for list literals
@@ -174,17 +178,22 @@ def tokenizer(input_string):
 					if ( char == '`' ) and (prevchar != '\\'):
 						quoted = False
 					working_str = working_str + char
+					if ( count == len(input_string) - 1 ):
+						working_array.append(working_str)
 
 		# build quoted strings that aren't surrounded by curly braces or parentheses
 		# these will be used for programmer-defined literals with the "quoted" option enabled
 				
 		elif mode == 'quote_token':
 			if (char == '`') and (prevchar != '\\'):
+				working_str = working_str + char
 				mode = 'append'
 				working_array.append(working_str)
 				working_str = ''
 			else:
 				working_str = working_str + char
+				if ( count == len(input_string) - 1 ):
+					working_array.append(working_str)
 		
 		count = count + 1
 		
@@ -292,7 +301,7 @@ def scope_handler(type,name):
 
 :identifier_validator
 
-	# first character:  $ or @ or # or _ or :unicode_letters: or :num:
+	# first character:  $ or @ or _ or :unicode_letters: or :num:
 	
 	# middle characters:  - or _ or :unicode_letters: or :num:
 	
@@ -314,6 +323,7 @@ end identifier_validator
 	# exporting subroutines
 	# can replace variables with expressions to enforce runtime assertions
 	# all identifiers share the same namespace
+	# require foreign subroutines to use the # sigil in both declarations and calls
 	
 end declare_subroutine
 
@@ -327,15 +337,15 @@ end declare_subroutine
 			
 			# the keyword "type" makes the definition a type rather than an instance.  in this case, the type name would be declared, rather than the variable name
 
-	# type declarations
+	# type definitions
 
-	# simple structs:  declare type (export) structName as int (= 5)
+	# simple structs:  define type (export) structName as int (= 5)
 			# structs with only one field can be treated as if they weren't structs
 			# can (optionally) be addressed without mentioning their fields
 			# field names must be globally unique
 			
 	# tuple structs: 
-			declare type (export) struct structName
+			define type (export) struct structName
 				operator + is myfunC(structName,structName)
 				operator ++ is myfunD(structName)
 				myfunA(structName -> structNameA)	# defines a type conversion function

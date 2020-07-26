@@ -31,7 +31,9 @@ import sys, getopt
 
 import content
 
-module_list = []
+module_list = []			# this keeps track of all of our modules
+module_tree = []		# this keeps track of the chain of modules from main to the current module we're processing
+allowed_module_calls = []			# this keeps track of the modules that have been imported into the current module
 token_list = []
 token_list_truncated = []
 conversion_list = []
@@ -59,9 +61,11 @@ argument_list = sys.argv
 del argument_list[0]
 
 if len(argument_list) == 1:
-	module_list.append(['main', 'main', 'nonliterate', argument_list[0]])
+	module_list.append(['main', 'nonliterate', argument_list[0]])
+	module_tree.append(['main', 'nonliterate', argument_list[0]])
 elif (len(argument_list) == 2) and (argument_list[0] == '-l'):
-	module_list.append(['main', 'main', 'literate', argument_list[1]])
+	module_list.append(['main', 'literate', argument_list[1]])
+	module_tree.append(['main', 'nonliterate', argument_list[0]])
 else:
 	sys.exit("Wrong number of arguments supplied.  Exiting.")
 
@@ -70,16 +74,20 @@ else:
 
 while True:
 	
-	current_module_entry = module_list[-1]
+	#print module_tree
+	
+	current_module_entry = module_tree[-1]
+	
+	#print current_module_entry
 	
 	# extract contents of literate documents
 	
-	if current_module_entry[2] == "literate":
+	if current_module_entry[1] == "literate":
 		is_file_literate = True
 		# working_file = literate_handler(current_module_entry[3])
 	else:
 		is_file_literate = False
-		working_file = current_module_entry[3]
+		working_file = current_module_entry[2]
 	
 	# process straightjacket code
 	
@@ -92,7 +100,7 @@ while True:
 		# handle multi-line comments
 		
 		if (len(token_list) > 0) and (token_list[-1] == '=begin'):
-			current_context.append(['comment_begin',''])
+			current_context.append(['comment_begin','',''])
 			del token_list[-1]
 		elif (len(token_list) > 0) and (token_list[0] == '=end'):
 			del current_context[-1]
@@ -115,13 +123,14 @@ while True:
 		
 		# detect a few common conditions
 	
-		if len(token_list[0]) > 0:
+		if len(token_list) > 0:
 			
 			if (token_list[0] != 'declare') and (len(token_list[0]) > 1):
 				variable_declaration = True
 				for i in token_list:
 					if (i == 'type') or (i == 'function') or (i == 'procedure'):
 						variable_declaration = False
+						break
 
 			elif (len(token_list[0]) == 2) and (token_list[-1][0] == '(') and (token_list[-1][-1] == ')'):
 				procedure_call = True
@@ -131,37 +140,98 @@ while True:
 		
 			if mode == "collect":
 				
-				if ((token_list[0] == "import") or (token_list[0] == "limport")) and (len(token_list) >= 4):
-					if (token_list[1] != "foreign"):
-						# fill local module_list with duplicates
-						# this allows us to verify that module calls are correct
-						if token_list[0] == "limport":
-							# call literate_handler
-							# set modulepath to literate_handler_output
-							nop = 1
-						else:
-							modulepath = token_list[1]
-						# update current_context
-						# close(open_file)
-						# break
-					else:
-						# to be implemented later
+				if (len(token_list) = 4) and ((token_list[0] == "import") or (token_list[0] == "limport")):
+					
+					#if (token_list[1] != "foreign"):
+						
+						
+					# fill local module_list with duplicates
+					# allowed_module_calls
+					# this allows us to verify that module calls are correct
+					
+					# literate module imports
+					if token_list[0] == "limport":
+						# call literate_handler
+						# set modulepath to literate_handler_output
 						nop = 1
+						
+					# regular module imports
+					else:
+						tmpstr = ''
+						#print token_list[1]
+						if (token_list[1][0] == '`') and (token_list[1][-1] == '`'):
+							
+							# strip off the backticks
+							count = 0
+							for i in token_list[1]:
+								if (count != 0) and (count != len(token_list[1]) - 1):
+									tmpstr = tmpstr + token_list[1][count]
+								count = count + 1
+
+							modulepath = tmpstr
+
+						else:
+							content.my_error_message('There is an unquoted module path on line ',line_number,working_file,line)
+						
+					# if the module has already been added to current_context, then it doesn't need to be processed and we can add it to the allowed_module_calls list
+					# the allowed_module_calls list allows us to verify that calls to external modules are correct
+					
+					duplicate = False
+					#print module_list
+					for module_entry in module_list:
+						#tmp_array = ['module',token_list[3],'']
+						#if module_entry == tmp_array:
+						#print module_entry
+						#print module_entry[0]
+						#print token_list[3]
+						if module_entry[0] == token_list[3]:
+							#print 'here i am'
+							duplicate = True
+							duplicate_allowed = False
+							for allowed_entry in allowed_module_calls:
+								if allowed_entry[1] == token_list[3]:
+									duplicate_allowed = True
+							if duplicate_allowed == False:
+								allowed_module_calls.append(['module',token_list[3],''])
+							break
+						
+						
+					#print duplicate
+					#exit()
+						
+					# if the module hasn't already been added to the module list, and to the module tree, then we need to close the current module and open that module
+					
+					if duplicate == False:
+						current_context = []
+						allowed_module_calls = []
+						
+						current_context.append(['module',token_list[3],''])
+						module_list.append([token_list[3], 'nonliterate', modulepath])
+						module_tree.append([token_list[3], 'nonliterate', modulepath])
+						
+						open_file.close()
+						break
+						
+				# importing c files
+				elif  (len(token_list) = 4) and (token_list[0] == "cimport"):
+					# to be implemented later
+					nop = 1
 			
-				# look for two words:  module modulename
-					# the module name must be "main" and must be the first module
+				# elif two words:  module main
+					# the current module must be the first module, and must be named "main"
 					# if all conditions met
 						# content.context_handler(token_list[1],current_file)
 						# mode = "declare"
 				# else four words:  module modulename definitions begin
-					# the module name must not be "main" and must not be the first module
+					# the module name must not be "main", and must not be the first module
 					# if all conditions met
 						# mode = "define"
 				# else throw an error and exit
 			
 			# elif variable_declaration == True:
 				
-				# variable declarations can appear anywhere except before the beginning of the module
+				# variable declarations can appear in any module section except before the beginning of the module
+				# prohibited within control flow structures
 				
 				# call variable_declaration_handler
 				
@@ -176,7 +246,7 @@ while True:
 				# else
 					# found illegal statement in the declaration section
 				
-			#elif (mode == "body") or (mode == "definitions_body"):
+			# elif (mode == "body") or (mode == "definitions_body"):
 				
 				# if mode == definitions_body:
 					# check current_context for subroutine enclosure
@@ -237,10 +307,12 @@ while True:
 					# if enclosed within a subroutine, throw an error and exit
 					# mode = "definitions"
 					
+				# elif raise statement
+					
 				# else
 					# found illegal statement in the body of the module
 			
-			#elif mode == "definitions":
+			# elif mode == "definitions":
 			
 				# if token_list[0] == "define":
 					# mode = "definitions_body"
@@ -259,18 +331,20 @@ while True:
 					# else block_label = ""
 					# call scope_handler(end,token_list[1],block_label)
 					
+				# handle type definitions
+					
 			else:
-				content.my_error_message('We see an unrecognized statement on line ',line_number,working_file,line)
+				content.my_error_message('There is an unrecognized statement on line ',line_number,working_file,line)
 
 
 	# wind back through all of the modules we've added in reverse order
 	# stop looping when we reach the end of the first module
 
 	else:
-		if len(module_list) == 1:
+		if len(module_tree) == 1:
 			break
 		else:
-			del module_list[-1]
+			del module_tree[-1]
 
 
 	

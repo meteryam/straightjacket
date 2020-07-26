@@ -1,1 +1,5 @@
+
+import `test.txt` as main
+import `test2.txt` as test2
+
 procedure( arg1 arg2 )
