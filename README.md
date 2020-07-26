@@ -58,19 +58,19 @@ The reason modules other than the main module have a simpler structure is that t
 
 Import statements tell the compiler to include additional modules.  They look like this:
 
-	import `filename` as aliasname
-	limport `filename` as aliasname
-	cimport `filename` as aliasname
+	import ``filename`` as aliasname
+	limport ``filename`` as aliasname
+	cimport ``filename`` as aliasname
 	
 The keyword "import" indicates that the module can be treated as simple Straightjacket code.  The keyword "limport" indicates that the module was written in a literate programming style, and that the Straightjacket code must be extracted from it before being processed.  The keyword "cimport" indicates that the module was written in c, and that its contents should be imported without being processed by the compiler.
 
-## Literate Programming
+# Literate Programming
 
-Straightjacket natively supports a primitive form of literate programming.  If the main file is a literate file, then the compiler needs to process it accordingly.  The compiler first looks for a list of tags (without brackets) surrounded by <<def>> and <</def>> tags.  The final output will contain text from each declared tag, in the order given by the tag list within the <<def>> section.  Then the compiler looks for text located between tags formatted like this:  <<tagName>>
+Straightjacket natively supports a primitive form of literate programming.  If the main file is a literate file, then the compiler needs to process it accordingly.  The compiler first looks for a list of tags (without brackets) surrounded by <<def>> and <</def>> tags.  The final output will contain text from each declared tag, in the order given by the tag list within the `<<def>>` section.  Then the compiler looks for text located between tags formatted like this:  `<<tagName>>`
 
 The final output will contain text from each declared tag, in the order given by the tag list within the <<def>> section.  The compiler will print an error and abort if a tag is not used, if an undeclared tag is used, if a tag is misspelled or if a section of text begins with one tag but is ended by another tag.  Tags are case-insensitive, they may not contain spaces and they may not be indented by tabs.
 
-## Declarations
+# Declarations
 
 (type system)
 
@@ -107,7 +107,7 @@ declare [foreign] #procedure : [argType] [argType]
 
 (generics...)
 
-## Body
+# Body
 
 (control flow statements)
 
@@ -151,7 +151,7 @@ The "else abort" option more directly supports Dijkstra's structured programming
 
 (abort)
 
-## Definitions
+# Definitions
 
 (function definitions)
 
@@ -165,26 +165,26 @@ The main module can also catch exceptions that aren't caught by the subroutines 
 
 define type (export) structName as int (= 5)
 
-define type (export) struct structName
-	operator + is myfunC(structName,structName)
-	operator ++ is myfunD(structName)
-	myfunA(structName -> structNameA)	# defines a type conversion function
-	no_arithmetic			# prohibits the use of built-in arithmetic operators
-begin
-	int (= 0)																								# extends type "int"
-	float : myFloat :i (= 1.2)																# creates suffix "i"
-	int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }				# enum section creates values
-	[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }		# range prefix limits allowed range
-	const int : letter_a (=97) quoted_enum { a = 97 }		# enumerated values must be quoted
-	myfunC(myInt) (: myInt2) (= myfunC(0))						# uses a user-defined range function
-end struct
+	define type (export) struct structName
+		operator + is myfunC(structName,structName)
+		operator ++ is myfunD(structName)
+		myfunA(structName -> structNameA)	# defines a type conversion function
+		no_arithmetic			# prohibits the use of built-in arithmetic operators
+	begin
+		int (= 0)																								# extends type "int"
+		float : myFloat :i (= 1.2)																# creates suffix "i"
+		int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }				# enum section creates values
+		[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }		# range prefix limits allowed range
+		const int : letter_a (=97) quoted_enum { a = 97 }		# enumerated values must be quoted
+		myfunC(myInt) (: myInt2) (= myfunC(0))						# uses a user-defined range function
+	end struct
 
 define type (export) (const) list : listName (= { listName })
 
 
 
 
-## Other Details
+# Other Details
 
 - Most tokens share the same namespace.  Modules, subroutines, operators, variables, constants, block labels, type names.  Struct fields can use types from this shared namespace, but they don't have to.
 - Most tokens have a rather liberal format:  [$|@|#] + [_|-|:alpha:|:num:] + [_|:alpha:|:num:]
