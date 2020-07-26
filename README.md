@@ -70,7 +70,7 @@ Straightjacket natively supports a primitive form of literate programming.  If t
 
 The final output will contain text from each declared tag, in the order given by the tag list within the <<def>> section.  The compiler will print an error and abort if a tag is not used, if an undeclared tag is used, if a tag is misspelled or if a section of text begins with one tag but is ended by another tag.  Tags are case-insensitive, they may not contain spaces and they may not be indented by tabs.
 
-# Declarations
+### Declarations
 
 (type system)
 
