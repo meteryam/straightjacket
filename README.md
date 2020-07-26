@@ -1,6 +1,6 @@
 # straightjacket
 
-## Summary
+# Summary
 
 This is the 2020 rewrite of the straightjacket compiler.  I'm writing it in Python, and it will output c code rather than creating executables.  The plan is to implement these features last:
 
@@ -17,7 +17,7 @@ These features have been implemented so far:
 - modules
 
 
-## Design Notes
+# Design Notes
 
 This program implements the reference version of the Straightjacket compiler.  I designed Straightjacket to fit my own programming needs in ways that existing languages can't.  Fair warning; I am not a programmer by trade, and it probably shows (in a bad way).  Nevertheless, I intend to press on, partly for the fun of it and partly for its expected personal utility.
 
@@ -32,9 +32,9 @@ The second principle appears everywhere, but is best illustrated with fonts.  Le
 
 Suppose instead that you choose to capitalise your variable as "iLL".  This is much easier to read, despite being as inconsistent with the standard as it is possible to be.  I believe that consistency is useful whenever one can make things consistently better, but harmful when it causes harm.  Therefore, I choose (what I consider to be) clarity rather than consistency whenever those two ideals are at odds.  As I said, this principle appears everywhere, so you will find multiple features of this language that come from different language families.  If this displeases you, you are free to use other languages.
 
-The name "straightjacket" is an (hopefully humorous) reference to the foldoc article "bondage-and-discipline language", which is perjoratively describes programming languages that many programmers consider to be too safe for personal comfort (including Ada and Pascal, both of which inspired Straightjacket).  Straightjacket uses strong, static type checking with type extension, but no escapes.  Various kinds of bounds checks are automatically inserted by the compiler.   There is no explicit reference type or programmatic manipulation of references.  Memory is automatically managed in a primitive way, but automatically freeing heap variables as they pass out of scope.
+The name "Straightjacket" is a (hopefully humorous) reference to the foldoc article "bondage-and-discipline language", which is perjoratively describes programming languages that many programmers consider to be too safe for personal comfort (including Ada and Pascal, both of which were Straightjacket inspirations).  Straightjacket uses strong, static type checking with type extension, but no escapes.  Various kinds of bounds checks are automatically inserted by the compiler.   There is no explicit reference type or programmatic manipulation of references.  Memory is automatically managed in a primitive way, but automatically freeing heap variables as they pass out of scope.  Nullable types (i.e. list nodes) must be checked for null explicitly.
 
-## Detailed Description
+# Detailed Description
 
 Each Straightjacket program is composed of one or more modules, the first of which must be named "main".  The main module has this structure (where optional items are enclosed in square brackets):
 
@@ -64,7 +64,7 @@ Import statements tell the compiler to include additional modules.  They look li
 	
 The keyword "import" indicates that the module can be treated as simple Straightjacket code.  The keyword "limport" indicates that the module was written in a literate programming style, and that the Straightjacket code must be extracted from it before being processed.  The keyword "cimport" indicates that the module was written in c, and that its contents should be imported without being processed by the compiler.
 
-# Literate Programming
+### Literate Programming
 
 Straightjacket natively supports a primitive form of literate programming.  If the main file is a literate file, then the compiler needs to process it accordingly.  The compiler first looks for a list of tags (without brackets) surrounded by `<<def>>` and `<</def>>` tags.  The final output will contain text from each declared tag, in the order given by the tag list within the `<<def>>` section.  Then the compiler looks for text located between tags formatted like this:  `<<tagName>>`
 
@@ -107,7 +107,27 @@ declare [foreign] #procedure : [argType] [argType]
 
 (generics...)
 
-# Body
+(type declarations)
+
+declare type (export) structName as int (= 5)
+
+	declare type (export) struct structName
+		operator + is myfunC(structName,structName)
+		operator ++ is myfunD(structName)
+		myfunA(structName -> structNameA)	# defines a type conversion function
+		no_arithmetic	# prohibits the use of built-in arithmetic operators
+	begin
+		int (= 0)	# extends type "int"
+		float : myFloat :i (= 1.2)	# creates suffix "i"
+		int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }	# enum section creates values
+		[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }	# range prefix limits allowed range
+		const int : letter_a (=97) quoted_enum { a = 97 }	# enumerated values must be quoted
+		myfunC(myInt) (: myInt2) (= myfunC(0))	# uses a user-defined range function
+	end struct
+
+declare type (export) (const) list : listName (= { listName })
+
+### Body
 
 (control flow statements)
 
@@ -151,7 +171,7 @@ The "else abort" option more directly supports Dijkstra's structured programming
 
 (abort)
 
-# Definitions
+### Definitions
 
 (function definitions)
 
@@ -161,30 +181,10 @@ The "else abort" option more directly supports Dijkstra's structured programming
 
 The main module can also catch exceptions that aren't caught by the subroutines from which they've arisen.  Subroutines defined within the main module and called from it must use forward declarations.
 
-(type definitions)
-
-define type (export) structName as int (= 5)
-
-	define type (export) struct structName
-		operator + is myfunC(structName,structName)
-		operator ++ is myfunD(structName)
-		myfunA(structName -> structNameA)	# defines a type conversion function
-		no_arithmetic			# prohibits the use of built-in arithmetic operators
-	begin
-		int (= 0)																								# extends type "int"
-		float : myFloat :i (= 1.2)																# creates suffix "i"
-		int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }				# enum section creates values
-		[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }		# range prefix limits allowed range
-		const int : letter_a (=97) quoted_enum { a = 97 }		# enumerated values must be quoted
-		myfunC(myInt) (: myInt2) (= myfunC(0))						# uses a user-defined range function
-	end struct
-
-define type (export) (const) list : listName (= { listName })
 
 
 
-
-# Other Details
+### Other Details
 
 - Most tokens share the same namespace.  Modules, subroutines, operators, variables, constants, block labels, type names.  Struct fields can use types from this shared namespace, but they don't have to.
 - Most tokens have a rather liberal format:  [$|@|#] + [_|-|:alpha:|:num:] + [_|:alpha:|:num:]

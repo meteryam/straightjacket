@@ -30,11 +30,11 @@ import sys
 def my_error_message(message,line_number,filename,input_line):
 
 	if input_line != '':
-		print message + str(line_number) + ' of file \"' + filename + '\":'
+		print message + ' on line ' + str(line_number) + ' of file \"' + filename + '\":'
 		print '>> ' + input_line.rstrip()
 		sys.exit('Aborting compilation.')
 	else:
-		sys.exit(message + str(line_number) + ' of file \"' + filename + '\".  Aborting compilation.')
+		sys.exit(message + ' on line ' + str(line_number) + ' of file \"' + filename + '\".  Aborting compilation.')
 
 
 

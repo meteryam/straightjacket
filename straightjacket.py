@@ -140,7 +140,7 @@ while True:
 		
 			if mode == "collect":
 				
-				if (len(token_list) = 4) and ((token_list[0] == "import") or (token_list[0] == "limport")):
+				if (len(token_list) == 4) and ((token_list[0] == "import") or (token_list[0] == "limport")):
 					
 					#if (token_list[1] != "foreign"):
 						
@@ -171,19 +171,16 @@ while True:
 							modulepath = tmpstr
 
 						else:
-							content.my_error_message('There is an unquoted module path on line ',line_number,working_file,line)
+							content.my_error_message('There is an unquoted module path',line_number,working_file,line)
 						
 					# if the module has already been added to current_context, then it doesn't need to be processed and we can add it to the allowed_module_calls list
 					# the allowed_module_calls list allows us to verify that calls to external modules are correct
 					
+					if (token_list[3] == 'main') or (modulepath == module_list[0][2]):
+						content.my_error_message('There is an import statement referring to the main module',line_number,working_file,line)
+					
 					duplicate = False
-					#print module_list
 					for module_entry in module_list:
-						#tmp_array = ['module',token_list[3],'']
-						#if module_entry == tmp_array:
-						#print module_entry
-						#print module_entry[0]
-						#print token_list[3]
 						if module_entry[0] == token_list[3]:
 							#print 'here i am'
 							duplicate = True
@@ -213,20 +210,25 @@ while True:
 						break
 						
 				# importing c files
-				elif  (len(token_list) = 4) and (token_list[0] == "cimport"):
+				elif  (len(token_list) == 4) and (token_list[0] == "cimport"):
 					# to be implemented later
 					nop = 1
 			
-				# elif two words:  module main
-					# the current module must be the first module, and must be named "main"
-					# if all conditions met
-						# content.context_handler(token_list[1],current_file)
-						# mode = "declare"
-				# else four words:  module modulename definitions begin
-					# the module name must not be "main", and must not be the first module
-					# if all conditions met
-						# mode = "define"
-				# else throw an error and exit
+				elif (len(token_list) == 2) and (token_list[0] == "module") and (token_list[1] == 'main'):
+					
+					if (len(module_tree) != 1) or (module_tree[-1][0] != 'main') or (module_tree[-1][2] != module_list[0][2]):
+						content.my_error_message('Only the first module can be designated \"main\", but there is a statement referring to the current module as \"main\"',line_number,working_file,line)
+					else:
+						mode = 'declare'
+						
+				elif (len(token_list) == 4) and (token_list[0] == "module") and (token_list[2] == 'definitions') and (token_list[2] == 'begin'):
+					
+					if (len(module_tree) == 1) or (module_tree[-1][0] == 'main') or (module_tree[-1][2] == module_list[0][2]):
+						content.my_error_message('The main module must contain a body, but the \"module\" statement ends with \"definitions begin\"',line_number,working_file,line)
+					else:
+						mode = 'define'
+				else:
+					content.my_error_message('There is an unrecognized statement',line_number,working_file,line)
 			
 			# elif variable_declaration == True:
 				
@@ -240,6 +242,8 @@ while True:
 				
 				# if forward_declaration
 					# call declare_subroutine
+					
+				# handle type declarations
 				
 				# if (token_list[0] == "begin") and (current module == "main"):
 					# mode = "body"
@@ -331,10 +335,9 @@ while True:
 					# else block_label = ""
 					# call scope_handler(end,token_list[1],block_label)
 					
-				# handle type definitions
 					
 			else:
-				content.my_error_message('There is an unrecognized statement on line ',line_number,working_file,line)
+				content.my_error_message('There is an unrecognized statement',line_number,working_file,line)
 
 
 	# wind back through all of the modules we've added in reverse order
