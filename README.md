@@ -58,15 +58,15 @@ The reason modules other than the main module have a simpler structure is that t
 
 Import statements tell the compiler to include additional modules.  They look like this:
 
-	import ``filename`` as aliasname
-	limport ``filename`` as aliasname
-	cimport ``filename`` as aliasname
+	import `filename` as aliasname
+	limport `filename` as aliasname
+	cimport `filename` as aliasname
 	
 The keyword "import" indicates that the module can be treated as simple Straightjacket code.  The keyword "limport" indicates that the module was written in a literate programming style, and that the Straightjacket code must be extracted from it before being processed.  The keyword "cimport" indicates that the module was written in c, and that its contents should be imported without being processed by the compiler.
 
 # Literate Programming
 
-Straightjacket natively supports a primitive form of literate programming.  If the main file is a literate file, then the compiler needs to process it accordingly.  The compiler first looks for a list of tags (without brackets) surrounded by <<def>> and <</def>> tags.  The final output will contain text from each declared tag, in the order given by the tag list within the `<<def>>` section.  Then the compiler looks for text located between tags formatted like this:  `<<tagName>>`
+Straightjacket natively supports a primitive form of literate programming.  If the main file is a literate file, then the compiler needs to process it accordingly.  The compiler first looks for a list of tags (without brackets) surrounded by `<<def>>` and `<</def>>` tags.  The final output will contain text from each declared tag, in the order given by the tag list within the `<<def>>` section.  Then the compiler looks for text located between tags formatted like this:  `<<tagName>>`
 
 The final output will contain text from each declared tag, in the order given by the tag list within the <<def>> section.  The compiler will print an error and abort if a tag is not used, if an undeclared tag is used, if a tag is misspelled or if a section of text begins with one tag but is ended by another tag.  Tags are case-insensitive, they may not contain spaces and they may not be indented by tabs.
 
