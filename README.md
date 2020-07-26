@@ -102,8 +102,12 @@ Each module may contain zero or more functions (which must not have side effects
 
 (declaring and defining subroutines...)
 
-declare [foreign] returnType #function : [argType] [argType]
-declare [foreign] #procedure : [argType] [argType]
+declare returnType function : [argType] [argType]
+declare rocedure : [argType] [argType]
+
+foreign functions and procedures:
+
+declare foreign returnType #function : [argType] [argType]
 
 (generics...)
 
