@@ -233,9 +233,13 @@ while True:
 			# elif variable_declaration == True:
 				
 				# variable declarations can appear in any module section except before the beginning of the module
-				# prohibited within control flow structures
+				# to do:  prohibit within control flow structures
 				
-				# call variable_declaration_handler
+				# declare (export) (const) struct structName : typename.label = value, typename.label.const = value
+				
+				
+				
+				# to do: handle lists
 				
 			
 			# elif mode == "declare":

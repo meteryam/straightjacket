@@ -88,11 +88,11 @@ Lists and structs that contain lists are stored on the heap, and are automatical
 
 (declaring variables)
 
-declare (export) (const) int : myType (= 5)
+declare (export) (const) struct structName : typename [= value][, typename[.const] [= value]]
 
-declare (export) (const) struct : typename (= 5, 2, 1.5)
+declare (export) (const) list : listName [= { 1, 2[, listName] }]
 
-declare (export) (const) list : listName (= { 1, 2, listName })
+(circular lists)
 
 (declaring functions)
 
@@ -122,9 +122,9 @@ declare type (export) structName as int (= 5)
 		no_arithmetic	# prohibits the use of built-in arithmetic operators
 	begin
 		int (= 0)	# extends type "int"
-		float : myFloat :i (= 1.2)	# creates suffix "i"
-		int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }	# enum section creates values
-		[0..1]int : myInt (= 0) enum { FALSE = 0, TRUE = 1 }	# range prefix limits allowed range
+		myfloat :i (= 1.2)	# creates suffix "i"
+		myint (= 0) enum { FALSE = 0, TRUE = 1 }	# enum section creates values
+		int (= 0) : [0..1] enum { FALSE = 0, TRUE = 1 }	# range braces
 		const int : letter_a (=97) quoted_enum { a = 97 }	# enumerated values must be quoted
 		myfunC(myInt) (: myInt2) (= myfunC(0))	# uses a user-defined range function
 	end struct

@@ -233,6 +233,32 @@ def tokenizer(input_string):
 
 """
 
+:struct_declaration_handler
+
+	# structs with only one field can be treated as if they weren't structs
+	# can (optionally) be addressed without mentioning their fields
+	# use alloca to put them on the stack
+	# field labels are used only for globally unique type names (i.e. no arbitrary label names)
+
+	declare (export) (const) struct structName : typename = value, typename.const = value
+
+	struct {
+		unsigned int typename:1;
+		unsigned int: 0;
+	};
+
+	implement singleton structs using simple types.
+	
+	unsigned int b = 256;
+	
+	musl
+	gcc
+
+:end struct_declaration_handler
+
+
+
+
 def scope_handler(type,name):
 
 	if type == 'comment_begin':
@@ -328,24 +354,13 @@ end identifier_validator
 end declare_subroutine
 
 
-:struct_declaration_handler
+:type_declaration_handler
 
-	# variable declarations
-			declare (export) (const) int : myType (= 5)
-		or
-			declare type (export) (const) struct : typename (= 5, 2, 1.5)
+	# singleton types:
+	declare type (export) (const) struct : typename (= 5, 2, 1.5)
 			
-			# the keyword "type" makes the definition a type rather than an instance.  in this case, the type name would be declared, rather than the variable name
-
-	# type definitions
-
-	# simple structs:  define type (export) structName as int (= 5)
-			# structs with only one field can be treated as if they weren't structs
-			# can (optionally) be addressed without mentioning their fields
-			# field names must be globally unique
-			
-	# tuple structs: 
-			define type (export) struct structName
+	# tuple types: 
+			declare type (export) struct structName
 				operator + is myfunC(structName,structName)
 				operator ++ is myfunD(structName)
 				myfunA(structName -> structNameA)	# defines a type conversion function
@@ -393,17 +408,19 @@ end declare_subroutine
 	
 	# operations on fields
 	
+	# declare type (export) list : listName (= { 1, 2})
+	
 	# dot notation for fields (eg mystruct.fieldname)
 	
 	if expression
 		# call expression_handler
 	else abort
 	
-end struct_declaration_handler
+end type_declaration_handler
 	
 :list_declaration_handler
 
-	# declare (type) (export) (const) list : listName (= { 1, 2})
+	# declare (export) (const) list : listName (= { 1, 2})
 
 	# format:  8-bit type, 8-bit exponent, structs, pointer to previous entry, pointer to next entry
 			# reserved type numbers:  int, float, pointer to list
