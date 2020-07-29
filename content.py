@@ -233,7 +233,7 @@ def tokenizer(input_string):
 
 """
 
-:struct_declaration_handler
+def struct_declaration_handler
 
 	# structs with only one field can be treated as if they weren't structs
 	# can (optionally) be addressed without mentioning their fields
@@ -242,19 +242,22 @@ def tokenizer(input_string):
 
 	declare (export) (const) struct structName : typename = value, typename.const = value
 
-	struct {
-		unsigned int typename:1;
-		unsigned int: 0;
-	};
+	struct { unsigned int typename:1; const unsigned int: 0; };
 
 	implement singleton structs using simple types.
 	
-	unsigned int b = 256;
+	unsigned long b = 256;
 	
-	musl
-	gcc
+	handle standard integer widths
+	
+	8			signed char, unsigned char
+	16		signed short, unsigned short
+	32		signed long, unsigned long
+	64		signed long long, unsigned long long
+	
+	# compile (on linux) using gcc and musl
 
-:end struct_declaration_handler
+# end struct_declaration_handler
 
 
 
@@ -523,8 +526,6 @@ end variable_declaration_handler
 			# must be null-checked
 		# last list element:  list[$]
 		# next-to-last list element:  list[$-1]
-			# automatically check for null
-		# remove list element:  list[1].pop
 			# automatically check for null
 		# list slice:  list[1..3]
 			# automatically check for null

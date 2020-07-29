@@ -24,7 +24,6 @@ You should have received a copy of the GNU General Public License along
 with this program; if not, write to the Free Software Foundation, Inc.,
 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 
-
 """
 
 import sys, getopt
@@ -40,6 +39,11 @@ conversion_list = []
 argument_list = []
 current_module_entry = []
 current_context = []
+declared_variables = []
+
+reserved_words = ['abort', 'and', 'array', 'begin', 'cimport', 'declare', 'definitions', 'else', 'end', 'enum', 'export', 'float', 'foreign', 'function', 'if', 'import', 'int', 'limport', 'list', 'loop', 'main', 'mod', 'module', 'not', 'operator', 'or', 'procedure', 'quoted_enum', 'struct', 'type', 'xor']
+
+types = []
 
 multi_line_comment = False
 variable_declaration = False
@@ -50,10 +54,9 @@ is_file_literate = False
 
 working_file=""
 open_file = ""
-mode = "collect"
 current_file = ""
 line_number = ""
-
+mode = "collect"
 
 # handle arguments
 
@@ -125,6 +128,10 @@ while True:
 	
 		if len(token_list) > 0:
 			
+			
+			# to do:  better error-checking on declarations
+			# also stop on colons
+			
 			if (token_list[0] != 'declare') and (len(token_list[0]) > 1):
 				variable_declaration = True
 				for i in token_list:
@@ -178,6 +185,8 @@ while True:
 					
 					if (token_list[3] == 'main') or (modulepath == module_list[0][2]):
 						content.my_error_message('There is an import statement referring to the main module',line_number,working_file,line)
+						
+					# to do:  error-check module path imports and alias consistency
 					
 					duplicate = False
 					for module_entry in module_list:
@@ -230,16 +239,50 @@ while True:
 				else:
 					content.my_error_message('There is an unrecognized statement',line_number,working_file,line)
 			
-			# elif variable_declaration == True:
+			elif variable_declaration == True:
 				
 				# variable declarations can appear in any module section except before the beginning of the module
 				# to do:  prohibit within control flow structures
 				
-				# declare (export) (const) struct structName : typename.label = value, typename.label.const = value
+				# if next-to last entry is equal sign and none of the words are array, struct or list
+				# handle integer types:  
 				
+				#	8			signed char, unsigned char
+				#	16		signed short, unsigned short
+				#	32		signed long, unsigned long
+				#	64		signed long long, unsigned long long
 				
+				# reserved_words list
+				# types list
+					# class, typename, value, numeric, export, const, range, suffix, binding functions, enumerations, quoted enumerations
+					# classes:  primitive, array, struct, list
+				# declared_variables list
+					# primitives:  path, primitive, typename, value
+					# arrays:  path, array, typename, length
+					# structs:  path, struct, [typename, length, value]
+					# lists:  path, list, typename, circular
 				
-				# to do: handle lists
+				# declare (export) (const) typename variablename = value
+				
+					# signed long variablename = value;
+					
+					# 8 -> char
+					# 16 -> short
+					# 32 -> long
+					# 64 -> long long
+					# + -> unsigned
+					# int -> signed long
+				
+				# declare (export) (const) typename array variablename[2]
+				
+					# implement as dynamic pascal-style arrays
+				
+				# declare (export) (const) struct variablename begin
+					# typename = value
+					# typename = value
+				# end variablename
+				
+				# declare (export) (const) (typename) list variablename (= variablename)
 				
 			
 			# elif mode == "declare":
@@ -284,6 +327,7 @@ while True:
 				# elif (token_list[0] == "if") or ((token_list[0] == "else") and (number of tokens > 1):
 				
 					# cope with multiple conditions
+					# cope with pattern matching for structs and lists
 					# cope with if block labels
 					# cope with if guards
 					# call if_handler

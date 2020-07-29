@@ -1,11 +1,11 @@
-# straightjacket
+# Straightjacket
 
-# Summary
+## Summary
 
 This is the 2020 rewrite of the straightjacket compiler.  I'm writing it in Python, and it will output c code rather than creating executables.  The plan is to implement these features last:
 
 - lists
-- pattern matching for lists within conditionals
+- pattern matching within conditionals
 - floating point numbers
 - literate programming
 - foreign function interface
@@ -17,7 +17,7 @@ These features have been implemented so far:
 - modules
 
 
-# Design Notes
+## Design Notes
 
 This program implements the reference version of the Straightjacket compiler.  I designed Straightjacket to fit my own programming needs in ways that existing languages can't.  Fair warning; I am not a programmer by trade, and it probably shows (in a bad way).  Nevertheless, I intend to press on, partly for the fun of it and partly for its expected personal utility.
 
@@ -34,7 +34,7 @@ Suppose instead that you choose to capitalise your variable as "iLL".  This is m
 
 The name "Straightjacket" is a (hopefully humorous) reference to the foldoc article "bondage-and-discipline language", which is perjoratively describes programming languages that many programmers consider to be too safe for personal comfort (including Ada and Pascal, both of which were Straightjacket inspirations).  Straightjacket uses strong, static type checking with type extension, but no escapes.  Various kinds of bounds checks are automatically inserted by the compiler.   There is no explicit reference type or programmatic manipulation of references.  Memory is automatically managed in a primitive way, but automatically freeing heap variables as they pass out of scope.  Nullable types (i.e. list nodes) must be checked for null explicitly.
 
-# Detailed Description
+## Detailed Description
 
 Each Straightjacket program is composed of one or more modules, the first of which must be named "main".  The main module has this structure (where optional items are enclosed in square brackets):
 
@@ -74,25 +74,23 @@ The final output will contain text from each declared tag, in the order given by
 
 (type system)
 
-Straightjacket has five built-in data types:
+Straightjacket's built-in data types are arranged in a conceptual hierarchy:
 
 - list
 - struct
-- int
-- float
+- array
+- primitive
 - number
+- float
+- int
 
-Every variable is either a list or a struct, and every element of a list or struct is either an int or a float.  Integers and floats also have variations to account for different widths (eg int8, int32, etc) and to support unsigned integers (eg int32+).  The type "number" is reserved for the arguments and local variables of generic functions, which can then be applied to either ints or floats.
+Lists generalize structs, which generalize arrays, which generalize primitives, which generalize numbers, which generalize floats, which generalize ints.
 
-Lists and structs that contain lists are stored on the heap, and are automatically reclaimed when they go out of scope.  A function's local variables only go out of scope when it returns a value.  All other structs go on the stack.  These choices ensure that all variables are eliminated when they go out of scope, thus preventing many types of memory leaks.
+"Primitive" is a property of custom types that tells the compiler that the usual arithmetic operators do not apply to those types.  The type "number" can only be used in functions, which allows them to handle different numeric types.  Floats and ints can be mixed to produce floats, but arithmetic between ints can only produce ints.
+
+Lists are stored on the heap, and are automatically reclaimed when they go out of scope.  A function's local variables only go out of scope when it returns a value.  Structs always go onto the stack.  These choices ensure that all variables are eliminated when they go out of scope, thus preventing many types of memory leaks.
 
 (declaring variables)
-
-declare (export) (const) struct structName : typename [= value][, typename[.const] [= value]]
-
-declare (export) (const) list : listName [= { 1, 2[, listName] }]
-
-(circular lists)
 
 (declaring functions)
 
@@ -103,33 +101,45 @@ Each module may contain zero or more functions (which must not have side effects
 (declaring and defining subroutines...)
 
 declare returnType function : [argType] [argType]
-declare rocedure : [argType] [argType]
+declare procedure : [argType] [argType]
 
 foreign functions and procedures:
 
 declare foreign returnType #function : [argType] [argType]
 
+declare foreign returnType #procedure : [argType] [argType]
+
 (generics...)
 
 (type declarations)
 
-declare type (export) structName as int (= 5)
+declare type (export) structName as int [7] (= 5)
 
 	declare type (export) struct structName
 		operator + is myfunC(structName,structName)
 		operator ++ is myfunD(structName)
 		myfunA(structName -> structNameA)	# defines a type conversion function
-		no_arithmetic	# prohibits the use of built-in arithmetic operators
+		primitive	# prohibits the use of built-in arithmetic operators
 	begin
-		int (= 0)	# extends type "int"
-		myfloat :i (= 1.2)	# creates suffix "i"
-		myint (= 0) enum { FALSE = 0, TRUE = 1 }	# enum section creates values
-		int (= 0) : [0..1] enum { FALSE = 0, TRUE = 1 }	# range braces
-		const int : letter_a (=97) quoted_enum { a = 97 }	# enumerated values must be quoted
-		myfunC(myInt) (: myInt2) (= myfunC(0))	# uses a user-defined range function
-	end struct
+		int = 0	# extends type "int"
+		int [10] = 0		# 10-cell integer array
+		myfloat :i = 1.2	# creates suffix "i"
+		myint = 0 enum ( FALSE = 0, TRUE = 1 )	# enum section creates values
+		int = 0 : [0..1] enum ( FALSE = 0, TRUE = 1 )	# range braces
+		const int : a = 97, quoted_enum ( a = `a` )	# quoted enumerations must be included within backticks; can be multi-byte
+		myfunCmyInt : myInt2 = myfunC(0)	# uses a user-defined range function
+	end type
 
-declare type (export) (const) list : listName (= { listName })
+declare type (export) (const) list listName (= { [listName] })
+
+	declare type (export) list structName
+		operator + is myfunC(structName,structName)
+		operator ++ is myfunD(structName)
+		myfunA(structName -> structNameA)	# defines a type conversion function
+		primitive	# prohibits the use of built-in arithmetic operators
+	begin
+		{ 1, 1.0, 42 }
+	end type
 
 ### Body
 
@@ -191,7 +201,7 @@ The main module can also catch exceptions that aren't caught by the subroutines 
 ### Other Details
 
 - Most tokens share the same namespace.  Modules, subroutines, operators, variables, constants, block labels, type names.  Struct fields can use types from this shared namespace, but they don't have to.
-- Most tokens have a rather liberal format:  [$|@|#] + [_|-|:alpha:|:num:] + [_|:alpha:|:num:]
+- Most tokens have a rather liberal format:  `[$|@|#]` + `[_|-|:alpha:|:num:]` + `[_|:alpha:|:num:]`
 - Tokens must be separated from everything else by whitespace.
 - The equal sign must appear on the right-hand side of expressions.
 - The equal sign is used for both equality and assignment.  This eliminates a common source of errors when programmers accidentally use the assignment operator in a comparison context.
@@ -204,3 +214,5 @@ The main module can also catch exceptions that aren't caught by the subroutines 
 - Functions are pure (i.e. they cannot have side effects).  However, procedures can have side effects.  This makes both correct coding and troubleshooting easier.
 - Software transactional memory must be used to update lists when subroutines are marked "atomic".  This can be done at either definition time or at call time.  This facilitates multi-threaded programming without unduly burdening single-threaded programs.
 - Type checking is both strict and static.  Two structs have the same type if their fields have the same names, same underlying types and are in the same order.
+
+
