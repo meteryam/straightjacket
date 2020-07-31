@@ -16,6 +16,10 @@ These features have been implemented so far:
 
 - modules
 
+I'm working on these features right now:
+
+- declaring integers
+
 
 ## Design Notes
 

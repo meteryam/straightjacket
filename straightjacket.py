@@ -38,12 +38,13 @@ token_list_truncated = []
 conversion_list = []
 argument_list = []
 current_module_entry = []
+current_subroutine = []
 current_context = []
 declared_variables = []
 
 reserved_words = ['abort', 'and', 'array', 'begin', 'cimport', 'declare', 'definitions', 'else', 'end', 'enum', 'export', 'float', 'foreign', 'function', 'if', 'import', 'int', 'limport', 'list', 'loop', 'main', 'mod', 'module', 'not', 'operator', 'or', 'procedure', 'quoted_enum', 'struct', 'type', 'xor']
 
-types = []
+types = [['primitive','int',0,'numeric','','','','','','',''],['primitive','int8',0,'numeric','','','','','','',''],['primitive','int16',0,'numeric','','','','','','',''],['primitive','int32',0,'numeric','','','','','','',''],['primitive','int64',0,'numeric','','','','','','',''],['primitive','int+',0,'numeric','','','','','','',''],['primitive','int8+',0,'numeric','','','','','','',''],['primitive','int16+',0,'numeric','','','','','','',''],['primitive','int32+',0,'numeric','','','','','','',''],['primitive','int64+',0,'numeric','','','','','','','']]
 
 multi_line_comment = False
 variable_declaration = False
@@ -244,26 +245,108 @@ while True:
 				# variable declarations can appear in any module section except before the beginning of the module
 				# to do:  prohibit within control flow structures
 				
-				# if next-to last entry is equal sign and none of the words are array, struct or list
-				# handle integer types:  
+				# track declared variables
 				
-				#	8			signed char, unsigned char
-				#	16		signed short, unsigned short
-				#	32		signed long, unsigned long
-				#	64		signed long long, unsigned long long
+				build_list = []
+				exportflag = ''
+				constflag = ''
+				typename = ''
+				myvariablename = ''
+				myvalue = ''
+				myclass = ''
+				is_numeric = False
+				myrange = ''
+				mysuffix = ''
+				binding_functions = []
+				enumerations = []
+				quoted_enumerations = []
+				
+				# class, typename, default_value, numeric, range, suffix, binding functions, enumerations, quoted enumerations
+				
+				primitive_found = True
+				for token in token_list:
+					if token == '=':
+						break
+					else:
+						if (token == 'array') or (token == 'struct') or (token == 'list'):
+							primitive_found = False
+							break
+						elif token == 'export':
+							exportflag = 'export'
+						elif token == 'const':
+							constflag = 'const'
+
+				mypath = current_module_entry[0]
+				
+				if (len(current_subroutine) > 0):
+					mypath = mypath + '.' + current_subroutine[0]
+
+				if (primitive_found == True):
+					myclass = 'primitive'
+					# path, primitive, typename, value
+
+					if (exportflag == '') and (constflag == ''):
+						typename = token_list[1]
+					elif (exportflag == 'export') xor (constflag == 'const'):
+						typename = token_list[2]
+					elif (exportflag == 'export') and (constflag == 'const'):
+						typename = token_list[3]
+					
+					if token_list[-1] != '=':
+						
+						myvariablename = token_list[-1]
+					else:
+						myvariablename = token_list[-3]
+						myvalue = token_list[-1]
+						
+					# to do:
+						# check formatting variable name for allowed characters
+						# check reserved words list for name collisions
+						# check existing declared_variables list for name collisions
+						
+					mypath = mypath + '.' + myvariablename
+							
+					for type_entry in types:
+						if (type_entry[0] == 'primitive') and (type_entry[1] == typename):
+							if (token_list[-2] != '='):
+								myvalue = type_entry[2]
+								
+							if type_entry[3] == 'numeric':
+								is_numeric = True
+							myrange = type_entry[4]
+							mysuffix = type_entry[5]
+							binding_functions = type_entry[6]
+							enumerations = type_entry[7]
+							quoted_enumerations = type_entry[8]
+								
+							break
+						
+						
+				declared_variables.append([mypath,myclass,typename,exportflag,constflag,myvalue]
+				
+				
+				# translate variable declaration to c
+				
+				# class, typename, default_value, numeric, range, suffix, binding functions, enumerations, quoted enumerations
+				
+				
+				
 				
 				# reserved_words list
 				# types list
-					# class, typename, value, numeric, export, const, range, suffix, binding functions, enumerations, quoted enumerations
+					# class, typename, default_value, numeric, range, suffix, binding functions, enumerations, quoted enumerations
 					# classes:  primitive, array, struct, list
+					# ['primitive','int',0,'numeric','','','','','','','']
+					
 				# declared_variables list
-					# primitives:  path, primitive, typename, value
-					# arrays:  path, array, typename, length
-					# structs:  path, struct, [typename, length, value]
-					# lists:  path, list, typename, circular
+					# primitives:  path, primitive, typename, export, const, value
+					# arrays:  path, array, typename, export, const, length
+					# structs:  path, struct, export, const, [typename, length, value]
+					# lists:  path, list, export, const, typename, circular
 				
+				# declare typename variablename
 				# declare (export) (const) typename variablename = value
-				
+					# example output:
 					# signed long variablename = value;
 					
 					# 8 -> char
