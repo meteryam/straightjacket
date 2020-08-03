@@ -15,6 +15,7 @@ This is the 2020 rewrite of the straightjacket compiler.  I'm writing it in Pyth
 These features have been implemented so far:
 
 - modules
+- integer declarations
 
 I'm working on these features right now:
 
