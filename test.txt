@@ -1,7 +1,11 @@
 
 module main
 
+declare int variablename = 1
+
 begin
+
+declare int64+ another_variable
 
 definitions begin
 

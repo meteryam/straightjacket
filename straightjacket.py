@@ -44,7 +44,7 @@ declared_variables = []
 
 reserved_words = ['abort', 'and', 'array', 'begin', 'cimport', 'declare', 'definitions', 'else', 'end', 'enum', 'export', 'float', 'foreign', 'function', 'if', 'import', 'int', 'limport', 'list', 'loop', 'main', 'mod', 'module', 'not', 'operator', 'or', 'procedure', 'quoted_enum', 'struct', 'type', 'xor']
 
-types = [['primitive','int',0,'numeric','','','','','','',''],['primitive','int8',0,'numeric','','','','','','',''],['primitive','int16',0,'numeric','','','','','','',''],['primitive','int32',0,'numeric','','','','','','',''],['primitive','int64',0,'numeric','','','','','','',''],['primitive','int+',0,'numeric','','','','','','',''],['primitive','int8+',0,'numeric','','','','','','',''],['primitive','int16+',0,'numeric','','','','','','',''],['primitive','int32+',0,'numeric','','','','','','',''],['primitive','int64+',0,'numeric','','','','','','','']]
+types = [['primitive','int','0','numeric','','','','',[],[],[]],['primitive','int8','0','numeric','','','','',[],[],[]],['primitive','int16','0','numeric','','','','',[],[],[]],['primitive','int32','0','numeric','','','','',[],[],[]],['primitive','int64','0','numeric','','','','',[],[],[]],['primitive','int+','0','numeric','','','','',[],[],[]],['primitive','int8+','0','numeric','','','','',[],[],[]],['primitive','int16+','0','numeric','','','','',[],[],[]],['primitive','int32+','0','numeric','','','','',[],[],[]],['primitive','int64+','0','numeric','','','','',[],[],[]]]
 
 multi_line_comment = False
 variable_declaration = False
@@ -133,18 +133,19 @@ while True:
 			# to do:  better error-checking on declarations
 			# also stop on colons
 			
-			if (token_list[0] != 'declare') and (len(token_list[0]) > 1):
-				variable_declaration = True
-				for i in token_list:
-					if (i == 'type') or (i == 'function') or (i == 'procedure'):
-						variable_declaration = False
-						break
+			if len(token_list) > 1:
+				if token_list[0] == 'declare':
+					variable_declaration = True
+					for i in token_list:
+						if (i == 'type') or (i == 'function') or (i == 'procedure'):
+							variable_declaration = False
+							break
 
-			elif (len(token_list[0]) == 2) and (token_list[-1][0] == '(') and (token_list[-1][-1] == ')'):
-				procedure_call = True
-				
-			elif (token_list[0] != 'declare') and (len(token_list[0]) > 1) and (token_list[-2] == '='):
-				expression = True
+				elif (len(token_list) == 2) and (token_list[-1][0] == '(') and (token_list[-1][-1] == ')'):
+					procedure_call = True
+					
+				elif (len(token_list) > 1) and (token_list[0] != 'declare') and (token_list[-2] == '='):
+					expression = True
 		
 			if mode == "collect":
 				
@@ -230,6 +231,7 @@ while True:
 						content.my_error_message('Only the first module can be designated \"main\", but there is a statement referring to the current module as \"main\"',line_number,working_file,line)
 					else:
 						mode = 'declare'
+						print('beginning declare mode')
 						
 				elif (len(token_list) == 4) and (token_list[0] == "module") and (token_list[2] == 'definitions') and (token_list[2] == 'begin'):
 					
@@ -287,25 +289,20 @@ while True:
 
 					if (exportflag == '') and (constflag == ''):
 						typename = token_list[1]
-					elif (exportflag == 'export') xor (constflag == 'const'):
+					elif ((exportflag == 'export') and not (constflag == 'const')) or (not (exportflag == 'export') and (constflag == 'const')):
 						typename = token_list[2]
 					elif (exportflag == 'export') and (constflag == 'const'):
 						typename = token_list[3]
 					
-					if token_list[-1] != '=':
+					if token_list[-2] != '=':
 						
 						myvariablename = token_list[-1]
 					else:
 						myvariablename = token_list[-3]
 						myvalue = token_list[-1]
 						
-					# to do:
-						# check formatting variable name for allowed characters
-						# check reserved words list for name collisions
-						# check existing declared_variables list for name collisions
-						
 					mypath = mypath + '.' + myvariablename
-							
+					
 					for type_entry in types:
 						if (type_entry[0] == 'primitive') and (type_entry[1] == typename):
 							if (token_list[-2] != '='):
@@ -322,10 +319,48 @@ while True:
 							break
 						
 						
-				declared_variables.append([mypath,myclass,typename,exportflag,constflag,myvalue]
+				# to do:
+					# check formatting variable name for allowed characters
+					# check reserved words list for name collisions
+					# check existing declared_variables list for name collisions
+					# check value format
+					# check ranges, enumerations, quoted enumerations
+						
+						
+				# store all our variable properties for tracking
+				
+				declared_variables.append([mypath,myclass,typename,exportflag,constflag,myvalue])
 				
 				
 				# translate variable declaration to c
+					
+				# handle signed and unsigned types
+				
+				if typename.endswith('+'):
+					truncated_typename = typename[:-1]
+					prefix = 'signed'
+				else:
+					prefix = 'unsigned'
+					truncated_typename = typename
+					
+				truncated_typename
+					
+				# handle widths
+				
+				if truncated_typename.startswith( 'int' ):
+					if truncated_typename == 'int8':
+						ctype = 'char'
+					elif truncated_typename == 'int16':
+						ctype = 'short'
+					elif (truncated_typename == 'int32') or (truncated_typename == 'int'):		# ints default to 32 bit widths
+						ctype = 'long'
+					elif truncated_typename == 'int64':
+						ctype = 'long long'
+						
+						
+				print(prefix + ' ' + ctype + ' ' + myvariablename + ' = ' + myvalue + ';')
+					
+					
 				
 				# class, typename, default_value, numeric, range, suffix, binding functions, enumerations, quoted enumerations
 				
@@ -368,7 +403,9 @@ while True:
 				# declare (export) (const) (typename) list variablename (= variablename)
 				
 			
-			# elif mode == "declare":
+			elif mode == "declare":
+				
+				nop = 1
 				
 				# if forward_declaration
 					# call declare_subroutine
