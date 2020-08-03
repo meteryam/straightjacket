@@ -17,9 +17,11 @@ These features have been implemented so far:
 - modules
 - integer declarations
 
-I'm working on these features right now:
+I'm working on these features right now/next:
 
-- declaring integers
+- forward declarations
+- type declarations
+- todo items
 
 
 ## Design Notes
