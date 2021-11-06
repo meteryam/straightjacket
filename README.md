@@ -2,26 +2,7 @@
 
 ## Summary
 
-This is the 2020 rewrite of the straightjacket compiler.  I'm writing it in Python, and it will output c code rather than creating executables.  The plan is to implement these features last:
-
-- lists
-- pattern matching within conditionals
-- floating point numbers
-- literate programming
-- foreign function interface
-- small standard library (strings, i/o, etc)
-- extended standard library
-
-These features have been implemented so far:
-
-- modules
-- integer declarations
-
-I'm working on these features right now/next:
-
-- forward declarations
-- type declarations
-- todo items
+This is the 2021 rewrite of the straightjacket compiler.  I'm writing it in Python, and it will output c code rather than creating executables.
 
 
 ## Design Notes
@@ -43,25 +24,13 @@ The name "Straightjacket" is a (hopefully humorous) reference to the foldoc arti
 
 ## Detailed Description
 
-Each Straightjacket program is composed of one or more modules, the first of which must be named "main".  The main module has this structure (where optional items are enclosed in square brackets):
+Each Straightjacket program is composed of one or more modules, the first of which must be named "main".  Every module has this structure:
 
 [import statements]
-module main
-	[declarations]
-begin
-	[control flow statements, expressions, procedure calls]
-definitions begin
-	[function definitions, procedure definitions, exception catches, type definitions]
-end module main
+module modulename begin
+	[module contents]
+end module modulename
 
-Other modules have a simpler structure:
-
-[import statements]
-module modulename definitions begin
-	[function definitions, procedure definitions, exceptions, type definitions]
-end module main
-
-The reason modules other than the main module have a simpler structure is that they exist simply to provide access to new subroutines, variables and types.  To include a body section would mean compiling code that would never be called.
 
 Import statements tell the compiler to include additional modules.  They look like this:
 
@@ -79,21 +48,12 @@ The final output will contain text from each declared tag, in the order given by
 
 ### Declarations
 
-(type system)
+Straightjacket uses strict, static, explicit typing (similar to Ada's type system) with these exceptions:
 
-Straightjacket's built-in data types are arranged in a conceptual hierarchy:
+- Types that differ only in width can be mixed by automatically converting both to the wider data type.
+- Any struct type A that includes a different type B can be substituted in place of type B.  This is Oberon's type extension system.
 
-- list
-- struct
-- array
-- primitive
-- number
-- float
-- int
-
-Lists generalize structs, which generalize arrays, which generalize primitives, which generalize numbers, which generalize floats, which generalize ints.
-
-"Primitive" is a property of custom types that tells the compiler that the usual arithmetic operators do not apply to those types.  The type "number" can only be used in functions, which allows them to handle different numeric types.  Floats and ints can be mixed to produce floats, but arithmetic between ints can only produce ints.
+In all other cases, variables may only be mixed if their types agree, and type conversions must be explicit.
 
 Lists are stored on the heap, and are automatically reclaimed when they go out of scope.  A function's local variables only go out of scope when it returns a value.  Structs always go onto the stack.  These choices ensure that all variables are eliminated when they go out of scope, thus preventing many types of memory leaks.
 
@@ -115,8 +75,6 @@ foreign functions and procedures:
 declare foreign returnType #function : [argType] [argType]
 
 declare foreign returnType #procedure : [argType] [argType]
-
-(generics...)
 
 (type declarations)
 
